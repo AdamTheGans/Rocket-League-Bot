@@ -55,9 +55,14 @@ if __name__ == "__main__":
         exp_buffer_size=300_000,               # 3x batch
         ppo_minibatch_size=50_000,             # 2 minibatches per epoch
         ppo_epochs=2,
-        policy_lr=1e-4,
-        critic_lr=1e-4,
-        ppo_ent_coef=0.005,
+        # ── Resume tuning (change back after dribble basin is escaped) ──
+        # Lower LR: prevents large updates while value function adapts
+        # to the new reward scale (was 1e-4 for fresh starts)
+        policy_lr=5e-5,
+        critic_lr=5e-5,
+        # Higher entropy: helps explore power-shot behaviors
+        # instead of staying in the dribble basin (was 0.005)
+        ppo_ent_coef=0.01,
         standardize_returns=True,
         standardize_obs=False,
     )
