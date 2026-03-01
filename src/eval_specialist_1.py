@@ -620,9 +620,57 @@ def evaluate(
             print(f"Could not save labeled GIF: {e}")
 
 
+def _discover_checkpoint_root(base_name: str = "grounded_strike") -> str:
+    """
+    Find the checkpoint root folder, handling rlgym-ppo's timestamped
+    folder names (e.g. 'grounded_strike-1772320959983582600').
+
+    If multiple matching runs exist, prompts the user to choose.
+    """
+    checkpoints_dir = "checkpoints"
+    if not os.path.isdir(checkpoints_dir):
+        raise FileNotFoundError(f"No '{checkpoints_dir}' directory found.")
+
+    # Find all folders starting with the base name
+    matches = []
+    for name in sorted(os.listdir(checkpoints_dir)):
+        full = os.path.join(checkpoints_dir, name)
+        if os.path.isdir(full) and name.startswith(base_name):
+            matches.append(full)
+
+    if not matches:
+        raise FileNotFoundError(
+            f"No checkpoint folders matching '{base_name}*' found in {checkpoints_dir}/.\n"
+            f"Contents: {os.listdir(checkpoints_dir)}"
+        )
+
+    if len(matches) == 1:
+        return matches[0]
+
+    # Multiple runs — prompt user
+    print(f"\nFound {len(matches)} checkpoint runs:")
+    for i, m in enumerate(matches):
+        # Count sub-checkpoints and find latest
+        subs = [s for s in os.listdir(m) if os.path.isdir(os.path.join(m, s))]
+        num_subs = len(subs)
+        latest = max(subs) if subs else "empty"
+        print(f"  [{i + 1}] {m}  ({num_subs} checkpoints, latest: {latest})")
+
+    while True:
+        try:
+            choice = input(f"\nWhich run to evaluate? [1-{len(matches)}]: ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(matches):
+                return matches[idx]
+        except (ValueError, EOFError):
+            pass
+        print("Invalid choice, try again.")
+
+
 if __name__ == "__main__":
+    root = _discover_checkpoint_root("grounded_strike")
     evaluate(
-        os.path.join("checkpoints", "grounded_strike"),
+        root,
         n_episodes=200,
         render=False,
         record_gif_episodes=2,

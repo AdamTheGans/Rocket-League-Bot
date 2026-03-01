@@ -4,10 +4,13 @@ Custom MetricsLogger for the Grounded Strike specialist.
 
 Collects per-step metrics from the RLGym v2 GameState and reports
 aggregated stats (goal count, ball touches, speeds, boost) at each
-training iteration — printed to console and optionally logged to wandb.
+training iteration — printed to console, saved to CSV, and optionally
+logged to wandb.
 """
 from __future__ import annotations
 
+import csv
+import os
 import numpy as np
 from rlgym_ppo.util import MetricsLogger
 
@@ -21,6 +24,15 @@ class GroundedStrikeLogger(MetricsLogger):
       [3] boost        — car boost_amount (0-100)
       [4] ball_touched — 1.0 if car touched ball, else 0.0
     """
+
+    CSV_HEADER = [
+        "timesteps", "goals", "ball_touches",
+        "avg_ball_speed", "avg_car_speed", "avg_boost", "steps",
+    ]
+
+    def __init__(self, csv_path: str = "checkpoints/metrics.csv"):
+        super().__init__()
+        self.csv_path = csv_path
 
     def _collect_metrics(self, game_state) -> list:
         """
@@ -100,28 +112,46 @@ class GroundedStrikeLogger(MetricsLogger):
         if n_steps == 0:
             return
 
-        total_goals = sum(goals)
-        total_touches = sum(touches)
-        avg_ball_speed = np.mean(ball_speeds)
-        avg_car_speed = np.mean(car_speeds)
-        avg_boost = np.mean(boosts)
+        total_goals = int(sum(goals))
+        total_touches = int(sum(touches))
+        avg_ball_speed = float(np.mean(ball_speeds))
+        avg_car_speed = float(np.mean(car_speeds))
+        avg_boost = float(np.mean(boosts))
 
         # Print to console (always, regardless of wandb)
         print(f"\n{'='*8} STRIKE METRICS {'='*8}")
-        print(f"  Goals this iteration:    {int(total_goals)}")
-        print(f"  Ball touches:            {int(total_touches)}")
+        print(f"  Goals this iteration:    {total_goals}")
+        print(f"  Ball touches:            {total_touches}")
         print(f"  Avg ball speed:          {avg_ball_speed:.0f} uu/s")
         print(f"  Avg car speed:           {avg_car_speed:.0f} uu/s")
         print(f"  Avg boost:               {avg_boost:.1f} / 100")
         print(f"  Steps this iteration:    {n_steps}")
         print(f"{'='*32}\n")
 
+        # Save to CSV
+        self._append_csv(cumulative_timesteps, total_goals, total_touches,
+                         avg_ball_speed, avg_car_speed, avg_boost, n_steps)
+
         # Log to wandb if available
         if wandb_run is not None:
             wandb_run.log({
-                "strike/goals": int(total_goals),
-                "strike/ball_touches": int(total_touches),
+                "strike/goals": total_goals,
+                "strike/ball_touches": total_touches,
                 "strike/avg_ball_speed": avg_ball_speed,
                 "strike/avg_car_speed": avg_car_speed,
                 "strike/avg_boost": avg_boost,
             })
+
+    def _append_csv(self, timesteps, goals, touches, ball_speed, car_speed, boost, steps):
+        """Append one row to the metrics CSV. Creates the file + header if needed."""
+        file_exists = os.path.isfile(self.csv_path)
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+
+        with open(self.csv_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(self.CSV_HEADER)
+            writer.writerow([
+                timesteps, goals, touches,
+                f"{ball_speed:.1f}", f"{car_speed:.1f}", f"{boost:.1f}", steps,
+            ])

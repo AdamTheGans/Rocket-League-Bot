@@ -7,12 +7,16 @@ Currently training the "Grounded Strike" specialist — a 1v0 agent that learns 
 
 ---
 
-## Quick Setup (Windows)
+## Quick Setup
 
 ### 1. Install Python 3.10+
 
-Download from [python.org](https://www.python.org/downloads/).
-Make sure to check **"Add Python to PATH"** during installation.
+**Windows:** Download from [python.org](https://www.python.org/downloads/). Check **"Add Python to PATH"** during install.
+
+**Linux (Ubuntu):**
+```bash
+sudo apt update && sudo apt install python3 python3-venv python3-pip
+```
 
 ### 2. Clone / Copy the Project
 
@@ -20,38 +24,48 @@ Copy this entire folder to the target machine.
 
 ### 3. Create Virtual Environment
 
-Open PowerShell in the project root:
-
+**Windows (PowerShell):**
 ```powershell
 cd C:\path\to\Rocket-League-Bot
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 ```
 
-### 4. Install PyTorch with CUDA
-
-**For GPU machines (RTX 3080, etc.):**
-
-```powershell
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+**Linux:**
+```bash
+cd /path/to/Rocket-League-Bot
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-**For CPU-only machines:**
+### 4. Install PyTorch with CUDA
 
-```powershell
+**GPU machines:**
+```bash
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
+
+**CPU-only machines:**
+```bash
 pip install torch
 ```
 
 ### 5. Install Dependencies
 
-```powershell
+```bash
 pip install -r requirements.txt
 ```
 
 ### 6. Verify Installation
 
+**Windows:**
 ```powershell
 python src\verify_env.py
+```
+
+**Linux:**
+```bash
+python src/verify_env.py
 ```
 
 You should see `=== ALL TESTS PASSED ===` at the end.
@@ -62,9 +76,16 @@ You should see `=== ALL TESTS PASSED ===` at the end.
 
 ### On the GPU Machine (16 cores + 3080)
 
+**Windows:**
 ```powershell
 .venv\Scripts\Activate.ps1
 python src\train_specialist_1_gpu.py
+```
+
+**Linux:**
+```bash
+source .venv/bin/activate
+python src/train_specialist_1_gpu.py
 ```
 
 This uses the optimized config:
@@ -75,9 +96,16 @@ This uses the optimized config:
 
 ### On the Laptop (6 cores, CPU only)
 
+**Windows:**
 ```powershell
 .venv\Scripts\Activate.ps1
 python src\train_specialist_1.py
+```
+
+**Linux:**
+```bash
+source .venv/bin/activate
+python src/train_specialist_1.py
 ```
 
 ### Keyboard Controls During Training
@@ -95,9 +123,16 @@ Just run the same command again.
 
 ## Evaluation
 
+**Windows:**
 ```powershell
 .venv\Scripts\Activate.ps1
 python src\eval_specialist_1.py
+```
+
+**Linux:**
+```bash
+source .venv/bin/activate
+python src/eval_specialist_1.py
 ```
 
 This auto-finds the latest checkpoint, runs 200 episodes, and saves a
@@ -127,6 +162,7 @@ Rocket-League-Bot/
 │   └── verify_env.py               # Quick sanity test
 ├── checkpoints/                    # Saved model checkpoints
 ├── requirements.txt
+├── PLAN.md                         # Full project roadmap
 └── README.md
 ```
 
