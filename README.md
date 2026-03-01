@@ -50,7 +50,14 @@ pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu12
 pip install torch
 ```
 
-### 5. Install Dependencies
+### 5. Install RLGym + RocketSim + PPO engine
+
+```bash
+pip install rlgym[rl-sim,rl-rlviser]
+pip install git+https://github.com/AechPro/rlgym-ppo
+```
+
+### 6. Install remaining dependencies
 
 ```bash
 pip install -r requirements.txt

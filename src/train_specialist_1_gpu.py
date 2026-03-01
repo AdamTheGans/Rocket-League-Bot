@@ -20,16 +20,19 @@ if __name__ == "__main__":
     os.makedirs("checkpoints", exist_ok=True)
 
     # ── Monkey-patch: fix rlgym-ppo kbhit crash on Windows ──
-    import rlgym_ppo.util.kbhit as _kbhit
-    _original_getch = _kbhit.KBHit.getch
+    try:
+        import rlgym_ppo.util.kbhit as _kbhit
+        _original_getch = _kbhit.KBHit.getch
 
-    def _safe_getch(self):
-        try:
-            return _original_getch(self)
-        except UnicodeDecodeError:
-            return ""
+        def _safe_getch(self):
+            try:
+                return _original_getch(self)
+            except UnicodeDecodeError:
+                return ""
 
-    _kbhit.KBHit.getch = _safe_getch
+        _kbhit.KBHit.getch = _safe_getch
+    except Exception:
+        pass  # Linux doesn't use msvcrt, no patch needed
 
     # 16 physical cores — use 20 env processes
     n_proc = 20

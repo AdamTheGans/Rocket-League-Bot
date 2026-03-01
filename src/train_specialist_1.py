@@ -42,21 +42,25 @@ if __name__ == "__main__":
         timestep_limit=200_000_000,
         save_every_ts=500_000,
         checkpoints_save_folder=os.path.join("checkpoints", "grounded_strike"),
-        # Network — smaller than the training guide's [2048,2048,1024,1024]
-        # because we're training a 1v0 specialist on a laptop
+        # Network — same arch, weights loaded from 100M checkpoint
         policy_layer_sizes=[512, 256, 256],
         critic_layer_sizes=[512, 256, 256],
-        # PPO — aligned with official RLGym training guide
+        # PPO — standard settings
         ppo_batch_size=50_000,
         ts_per_iteration=50_000,
         exp_buffer_size=150_000,   # 3x batch size
         ppo_minibatch_size=50_000,
         ppo_epochs=2,
-        policy_lr=1e-4,
-        critic_lr=1e-4,
-        ppo_ent_coef=0.005,
+        # ── Resume tuning ──
+        # Lower LR (was 1e-4): prevents large updates from destabilizing
+        # the value function while it adapts to the new reward scale
+        policy_lr=5e-5,
+        critic_lr=5e-5,
+        # Higher entropy (was 0.005): helps escape the dribble basin
+        # by encouraging exploration of new behaviors (power shots)
+        ppo_ent_coef=0.01,
         standardize_returns=True,
-        standardize_obs=False,     # official guide says "Don't touch these"
+        standardize_obs=False,
     )
 
     learner.learn()
