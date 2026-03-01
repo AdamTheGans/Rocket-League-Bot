@@ -74,7 +74,7 @@ You should see `=== ALL TESTS PASSED ===` at the end.
 
 ## Training
 
-### On the GPU Machine (16 cores + 3080)
+### On the GPU Machine
 
 **Windows:**
 ```powershell
@@ -92,7 +92,7 @@ This uses the optimized config:
 - `n_proc=20` (20 parallel RocketSim environments)
 - `[512, 512, 256]` network (GPU handles this easily)
 - `100,000` batch size
-- `500M` timestep limit (~6-8 hours on 16-core + 3080)
+- `500M` timestep limit (~6-8 hours on GPU)
 
 ### On the Laptop (6 cores, CPU only)
 
