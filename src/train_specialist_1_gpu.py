@@ -46,9 +46,10 @@ if __name__ == "__main__":
         timestep_limit=500_000_000,            # 500M steps (overnight run)
         save_every_ts=1_000_000,               # save every 1M
         checkpoints_save_folder=os.path.join("checkpoints", "grounded_strike"),
-        # Bigger network — 3080 handles inference easily
-        policy_layer_sizes=[512, 512, 256],
-        critic_layer_sizes=[512, 512, 256],
+        # Network — match checkpoint arch from train_specialist_1.py
+        # GPU speedup comes from CUDA inference, not bigger network
+        policy_layer_sizes=[512, 256, 256],
+        critic_layer_sizes=[512, 256, 256],
         # PPO — larger batches for more stable gradients
         ppo_batch_size=100_000,
         ts_per_iteration=100_000,
