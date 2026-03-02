@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import numpy as np
 
+from rlgym.rocket_league import common_values
+
 
 class LowGroundSpawnMutator:
     """
@@ -22,7 +24,7 @@ class LowGroundSpawnMutator:
         boost_min: float = 40.0,   # 0-100 scale (matches Car.boost_amount)
         boost_max: float = 100.0,
         ball_z: float = 93.15,     # BALL_RESTING_HEIGHT from common_values
-        car_z: float = 17.01,      # car resting height (hitbox center)
+        car_z: float = 15.65,      # Dominus resting height (hitbox center ≈ 31.30/2)
     ):
         self.easy_prob = float(easy_prob)
         self.boost_min = float(boost_min)
@@ -85,3 +87,6 @@ class LowGroundSpawnMutator:
             car.boost_amount = float(
                 np.random.uniform(self.boost_min, self.boost_max)
             )
+
+            # Hitbox — Dominus for better pinches and power shots
+            car.hitbox_type = common_values.DOMINUS
