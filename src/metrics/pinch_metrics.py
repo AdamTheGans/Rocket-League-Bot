@@ -32,10 +32,17 @@ class PinchLogger(MetricsLogger):
         "avg_wall_dist", "avg_car_speed", "avg_boost", "steps",
     ]
 
-    def __init__(self, csv_path: str = "checkpoints/pinch_metrics.csv"):
+    def __init__(self, csv_path: str = "checkpoints/pinch_metrics.csv",
+                 tick_skip: int = 8, timeout_seconds: float = 2.0):
         super().__init__()
         self.csv_path = csv_path
+        self.tick_skip = tick_skip
+        self.timeout_seconds = timeout_seconds
         self._prev_goalward: float = 0.0
+        # Seconds per decision step
+        self._sec_per_step = tick_skip / 120.0
+        # Max steps per episode (for estimating episode count)
+        self._max_steps_per_ep = int(timeout_seconds / self._sec_per_step)
 
     def _collect_metrics(self, game_state) -> list:
         goal_scored_flag = float(getattr(game_state, "goal_scored", False))
@@ -139,16 +146,53 @@ class PinchLogger(MetricsLogger):
         avg_car_speed = float(np.mean(car_speeds))
         avg_boost = float(np.mean(boosts))
 
+        # Episode estimate: steps / max_steps_per_episode
+        est_episodes = max(1, n_steps // max(1, self._max_steps_per_ep))
+        goal_rate = total_goals / est_episodes * 100
+        touches_per_ep = total_touches / est_episodes
+
+        # Tiered spike tracking (goalward spikes at kph thresholds)
+        # 50 kph ~ 1400 uu/s, 75 kph ~ 2100, 100 kph ~ 2800, 125 kph ~ 3500
+        spike_tiers = [
+            ("50kph",  1400.0),
+            ("75kph",  2100.0),
+            ("100kph", 2800.0),
+            ("125kph", 3500.0),
+        ]
+        spike_counts = {}
+        for label, thresh in spike_tiers:
+            count = sum(1 for s in goalward_spikes if s > thresh)
+            spike_counts[label] = (count, count / est_episodes * 100)
+
+        # Cumulative simulated gameplay time
+        sim_seconds = cumulative_timesteps * self._sec_per_step
+        sim_hours = sim_seconds / 3600
+        sim_days = sim_hours / 24
+        sim_years = sim_days / 365.25
+        if sim_years >= 1.0:
+            sim_time_str = f"{sim_years:.1f} years ({sim_days:.0f} days)"
+        elif sim_days >= 1.0:
+            sim_time_str = f"{sim_days:.1f} days ({sim_hours:.0f} hrs)"
+        else:
+            sim_time_str = f"{sim_hours:.1f} hours"
+
         print(f"\n{'='*8} PINCH METRICS {'='*8}")
-        print(f"  Goals this iteration:     {total_goals}")
-        print(f"  Ball touches:             {total_touches}")
+        print(f"  Episodes (est):           ~{est_episodes}")
+        print(f"  Goals this iteration:     {total_goals}  ({goal_rate:.1f}% goal rate)")
+        print(f"  Ball touches:             {total_touches}  ({touches_per_ep:.1f}/ep)")
+        # Spike tiers
+        tier_parts = []
+        for label, (count, pct) in spike_counts.items():
+            tier_parts.append(f"{label}:{count}({pct:.1f}%)")
+        print(f"  Goalward spikes:          {' | '.join(tier_parts)}")
         print(f"  Avg ball speed:           {avg_ball_speed:.0f} uu/s")
-        print(f"  Max goalward spike:       {max_gw_spike:.0f} uu/s")
+        print(f"  Max goalward spike:       {max_gw_spike:.0f} uu/s ({max_gw_spike * 0.036:.0f} kph)")
         print(f"  Avg goalward speed:       {avg_goalward:.0f} uu/s")
         print(f"  Avg ball-wall dist:       {avg_wall_dist:.0f} uu")
         print(f"  Avg car speed:            {avg_car_speed:.0f} uu/s")
         print(f"  Avg boost:                {avg_boost:.1f} / 100")
         print(f"  Steps this iteration:     {n_steps}")
+        print(f"  Simulated gameplay:       {sim_time_str}")
         print(f"{'='*32}\n")
 
         self._append_csv(
@@ -158,16 +202,23 @@ class PinchLogger(MetricsLogger):
         )
 
         if wandb_run is not None:
-            wandb_run.log({
+            log_dict = {
                 "pinch/goals": total_goals,
+                "pinch/goal_rate": goal_rate,
                 "pinch/ball_touches": total_touches,
+                "pinch/touches_per_ep": touches_per_ep,
                 "pinch/avg_ball_speed": avg_ball_speed,
                 "pinch/max_goalward_spike": max_gw_spike,
                 "pinch/avg_goalward_speed": avg_goalward,
                 "pinch/avg_wall_dist": avg_wall_dist,
                 "pinch/avg_car_speed": avg_car_speed,
                 "pinch/avg_boost": avg_boost,
-            })
+                "pinch/sim_hours": sim_hours,
+            }
+            for label, (count, pct) in spike_counts.items():
+                log_dict[f"pinch/spikes_{label}"] = count
+                log_dict[f"pinch/spikes_{label}_pct"] = pct
+            wandb_run.log(log_dict)
 
     def _append_csv(self, timesteps, goals, touches, ball_speed, max_spike,
                     avg_goalward, wall_dist, car_speed, boost, steps):

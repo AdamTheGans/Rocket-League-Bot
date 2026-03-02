@@ -172,7 +172,11 @@ def main():
         env_create_function=env_factory,
         n_proc=n_proc,
         min_inference_size=min_inference_size,
-        metrics_logger=PinchLogger(csv_path=csv_path),
+        metrics_logger=PinchLogger(
+            csv_path=csv_path,
+            tick_skip=8,
+            timeout_seconds={1: 2.0, 2: 4.0, 3: 6.0}[stage],
+        ),
         random_seed=args.seed,
         timestep_limit=timestep_limits.get(stage, 200_000_000),
         save_every_ts=1_000_000,
