@@ -16,7 +16,7 @@ from rlgym_ppo.util import MetricsLogger
 from rlgym_ppo.util.rlgym_v2_gym_wrapper import RLGymV2GymWrapper
 
 from rewards.pinch_reward import GLOBAL_REWARD_BREAKDOWN
-class StageCompleteException(Exception):
+class StageCompleteException(BaseException):
     """Raised when the moving average metrics indicate the current stage is mastered."""
     def __init__(self, stage: int):
         self.stage = stage
@@ -58,7 +58,7 @@ class PinchLogger(MetricsLogger):
         self.tick_skip = tick_skip
         self.timeout_seconds = timeout_seconds
         self.stage = stage
-        self._prev_goalward: float = 0.0
+        self._prev_gw = None
         # Seconds per decision step
         self._sec_per_step = tick_skip / 120.0
         # Max steps per episode (for estimating episode count)
@@ -101,15 +101,20 @@ class PinchLogger(MetricsLogger):
             boost = float(car.boost_amount)
             touched = float(car.ball_touches > 0)
         else:
-            car_speed = 0.0
-            boost = 0.0
             touched = 0.0
+
+        gw = goalward_speed
+        if self._prev_gw is None or getattr(game_state, 'tick_count', 1) == 0:
+            delta = 0.0
+        else:
+            delta = max(0.0, gw - self._prev_gw)
+        self._prev_gw = gw
 
         reward_vals = [float(GLOBAL_REWARD_BREAKDOWN.get(name, 0.0)) for name in self.TRACKED_REWARDS]
 
         return [np.array([
             goal_scored_flag, ball_speed, goalward_speed,
-            ball_wall_dist, car_speed, boost, touched,
+            ball_wall_dist, car_speed, boost, touched, delta,
             *reward_vals
         ])]
 
@@ -150,7 +155,7 @@ class PinchLogger(MetricsLogger):
 
         for step_arrays in collected_metrics:
             arr = step_arrays[0]
-            if len(arr) >= 7:
+            if len(arr) >= 8:
                 goals.append(arr[0])
                 ball_speeds.append(arr[1])
                 goalward_speeds.append(arr[2])
@@ -158,16 +163,11 @@ class PinchLogger(MetricsLogger):
                 car_speeds.append(arr[4])
                 boosts.append(arr[5])
                 touches.append(arr[6])
-                # Track goalward speed deltas for spike detection
-                gw = arr[2]
-                delta = gw - prev_gw
-                if delta > 0 and gw > 0:
-                    goalward_spikes.append(delta)
-                prev_gw = gw
+                goalward_spikes.append(arr[7])
                 
-            if len(arr) >= 7 + len(self.TRACKED_REWARDS):
+            if len(arr) >= 8 + len(self.TRACKED_REWARDS):
                 for i, name in enumerate(self.TRACKED_REWARDS):
-                    component_rewards[name].append(arr[7 + i])
+                    component_rewards[name].append(arr[8 + i])
 
         n_steps = len(goals)
         if n_steps == 0:
