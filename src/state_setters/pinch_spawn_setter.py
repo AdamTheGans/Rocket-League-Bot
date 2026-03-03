@@ -149,10 +149,20 @@ class PinchSpawnMutator:
 
             # Place car offset from ball, roughly opposite the wall
             dist = rng.uniform(*cfg["car_dist_range"])
-            # Offset angle: away from wall (toward field center)
-            # Add wider angular noise for diagonal approach angles (better pinch geometry)
-            offset_angle = math.atan2(0, -wall_sign)  # points toward center
-            offset_angle += rng.uniform(-0.6, 0.6)     # diagonal approach variance
+            
+            # We want the car to be "behind" the ball relative to the target goal
+            # Target goal is y = -5120 (Orange) or y = 5120 (Blue)
+            # Since we assume the agent is attacking the opponent's goal, the car 
+            # needs to spawn slightly closer to its OWN goal than the ball is.
+            # If car is Blue, it attacks +Y, so it should spawn at a lesser Y than ball.
+            target_goal_y = -_BACK_WALL_Y if car.is_orange else _BACK_WALL_Y
+            
+            # Vector from ball towards center field, but tilted backwards
+            center_x_dir = -wall_sign 
+            back_y_dir = -1.0 if target_goal_y > 0 else 1.0 # Away from target goal
+            
+            base_angle = math.atan2(back_y_dir * 0.5, center_x_dir)
+            offset_angle = base_angle + rng.uniform(-0.6, 0.6)
 
             car_x = float(ball_x) + dist * math.cos(offset_angle)
             car_y = float(ball_y) + dist * math.sin(offset_angle)

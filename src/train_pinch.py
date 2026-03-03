@@ -120,82 +120,104 @@ def main():
     min_inference_size = max(1, int(round(n_proc * 0.9)))
 
     is_resume = args.resume_from is not None
-    lr = 5e-5 if is_resume else 1e-4
-    ent_coef = 0.008 if is_resume else 0.01
+    resume_path = args.resume_from
 
-    checkpoint_folder = os.path.join("checkpoints", f"pinch_stage{stage}")
+    from metrics.pinch_metrics import PinchLogger, StageCompleteException
 
-    if args.gpu:
-        batch_size = 100_000
-        ts_per_iter = 100_000
-        exp_buffer = 300_000
-        minibatch = 50_000
-    else:
-        batch_size = 50_000
-        ts_per_iter = 50_000
-        exp_buffer = 150_000
-        minibatch = 50_000
+    while stage <= 3:
+        _STAGE = stage
+        lr = 5e-5 if is_resume else 1e-4
+        ent_coef = 0.008 if is_resume else 0.01
 
-    # Timestep limits per stage (can be exceeded -- just a default)
-    timestep_limits = {1: 100_000_000, 2: 200_000_000, 3: 500_000_000}
+        checkpoint_folder = os.path.join("checkpoints", f"pinch_stage{stage}")
 
-    csv_path = os.path.join("checkpoints", f"pinch_stage{stage}_metrics.csv")
-
-    print(f"\n{'='*50}")
-    print(f"  PINCH SPECIALIST -- Stage {stage}")
-    print(f"  {'GPU mode' if args.gpu else 'CPU mode'}")
-    print(f"  n_proc={n_proc}  batch={batch_size}  lr={lr}")
-    print(f"  Checkpoint folder: {checkpoint_folder}")
-    if is_resume:
-        print(f"  Resuming from: {args.resume_from}")
-    print(f"  Seed: {args.seed}")
-    print(f"{'='*50}\n")
-
-    # Determine checkpoint_load_folder:
-    #   - Fresh start (no --resume-from): "latest" for same-stage auto-resume
-    #   - Resume from previous stage: resolve the path to the run folder
-    if is_resume:
-        # Cross-stage resume: find the actual run folder
-        resolved = _find_latest_checkpoint_in(args.resume_from)
-        if resolved is None:
-            print(f"WARNING: Could not find checkpoint run in {args.resume_from}")
-            print("Starting fresh instead.")
-            load_folder = None
+        if args.gpu:
+            batch_size = 100_000
+            ts_per_iter = 100_000
+            exp_buffer = 300_000
+            minibatch = 50_000
         else:
-            load_folder = resolved
-            print(f"Resolved resume path: {load_folder}")
-    else:
-        # Fresh start or same-stage auto-resume via "latest"
-        load_folder = "latest"
+            batch_size = 50_000
+            ts_per_iter = 50_000
+            exp_buffer = 150_000
+            minibatch = 50_000
 
-    learner = Learner(
-        env_create_function=env_factory,
-        n_proc=n_proc,
-        min_inference_size=min_inference_size,
-        metrics_logger=PinchLogger(
-            csv_path=csv_path,
-            tick_skip=8,
-            timeout_seconds={1: 2.0, 2: 4.0, 3: 6.0}[stage],
-        ),
-        random_seed=args.seed,
-        timestep_limit=timestep_limits.get(stage, 200_000_000),
-        save_every_ts=1_000_000,
-        checkpoints_save_folder=checkpoint_folder,
-        checkpoint_load_folder=load_folder,
-        policy_layer_sizes=[512, 256, 256],
-        critic_layer_sizes=[512, 256, 256],
-        ppo_batch_size=batch_size,
-        ts_per_iteration=ts_per_iter,
-        exp_buffer_size=exp_buffer,
-        ppo_minibatch_size=minibatch,
-        ppo_epochs=2,
-        policy_lr=lr,
-        critic_lr=lr,
-        ppo_ent_coef=ent_coef,
-        standardize_returns=True,
-        standardize_obs=False,
-    )
-    learner.learn()
+        # Timestep limits per stage (can be exceeded -- just a default)
+        timestep_limits = {1: 100_000_000, 2: 200_000_000, 3: 500_000_000}
+
+        csv_path = os.path.join("checkpoints", f"pinch_stage{stage}_metrics.csv")
+
+        print(f"\n{'='*50}")
+        print(f"  PINCH SPECIALIST -- Stage {stage}")
+        print(f"  {'GPU mode' if args.gpu else 'CPU mode'}")
+        print(f"  n_proc={n_proc}  batch={batch_size}  lr={lr}")
+        print(f"  Checkpoint folder: {checkpoint_folder}")
+        if is_resume:
+            print(f"  Resuming from: {resume_path}")
+        print(f"  Seed: {args.seed}")
+        print(f"{'='*50}\n")
+
+        # Determine checkpoint_load_folder:
+        if is_resume:
+            # Cross-stage resume: find the actual run folder
+            resolved = _find_latest_checkpoint_in(resume_path)
+            if resolved is None:
+                print(f"WARNING: Could not find checkpoint run in {resume_path}")
+                print("Starting fresh instead.")
+                load_folder = None
+            else:
+                load_folder = resolved
+                print(f"Resolved resume path: {load_folder}")
+        else:
+            # Fresh start or same-stage auto-resume via "latest"
+            load_folder = "latest"
+
+        learner = Learner(
+            env_create_function=env_factory,
+            n_proc=n_proc,
+            min_inference_size=min_inference_size,
+            metrics_logger=PinchLogger(
+                csv_path=csv_path,
+                tick_skip=8,
+                timeout_seconds={1: 2.0, 2: 4.0, 3: 6.0}[stage],
+                stage=stage,
+            ),
+            random_seed=args.seed,
+            timestep_limit=timestep_limits.get(stage, 200_000_000),
+            save_every_ts=1_000_000,
+            checkpoints_save_folder=checkpoint_folder,
+            checkpoint_load_folder=load_folder,
+            policy_layer_sizes=[1024, 1024, 512, 512],
+            critic_layer_sizes=[1024, 1024, 512, 512],
+            ppo_batch_size=batch_size,
+            ts_per_iteration=ts_per_iter,
+            exp_buffer_size=exp_buffer,
+            ppo_minibatch_size=minibatch,
+            ppo_epochs=2,
+            policy_lr=lr,
+            critic_lr=lr,
+            ppo_ent_coef=ent_coef,
+            standardize_returns=True,
+            standardize_obs=False,
+        )
+
+        try:
+            learner.learn()
+            # If learn exits normally without an exception, the user quit or timestep limit reached
+            break
+        except StageCompleteException as e:
+            print(f"\n{'='*60}")
+            print(f"  🎉 STAGE {stage} MASTERED! Transitioning to Stage {stage + 1}")
+            print(f"  Criteria met at {learner.agent.cumulative_timesteps} timesteps.")
+            print(f"{'='*60}\n")
+            
+            # Save final checkpoint for this stage
+            learner.save(learner.agent.cumulative_timesteps)
+            
+            # Setup for next stage auto-resume
+            is_resume = True
+            resume_path = checkpoint_folder
+            stage += 1
 
 
 if __name__ == "__main__":

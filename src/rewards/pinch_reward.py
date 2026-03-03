@@ -24,8 +24,57 @@ from rewards.strike_reward import (
     TimePenalty,
 )
 
+# Module-level variable to store reward breakdowns inside the env process.
+# This bypasses RLGym's GameState serialization which strips dynamic attributes.
+GLOBAL_REWARD_BREAKDOWN: Dict[str, float] = {}
 
 # ─── Pinch-specific reward components ───────────────────────────────────────
+
+class LoggingCombinedReward(CombinedReward):
+    """
+    A CombinedReward that intercepts the computed per-component rewards
+    and saves them out to the GameState object so the metrics logger can
+    read them before the state is serialized into shared memory.
+    """
+    def __init__(self, *rewards_and_weights):
+        super().__init__(*rewards_and_weights)
+        self.reward_names = []
+        for r, w in rewards_and_weights:
+            # e.g., "GoalwardSpeedSpikeReward" -> "GoalwardSpeedSpike"
+            self.reward_names.append(r.__class__.__name__.replace("Reward", ""))
+
+    def get_rewards(
+        self,
+        agents: List[AgentID],
+        state: GameState,
+        is_terminated: Dict[AgentID, bool],
+        is_truncated: Dict[AgentID, bool],
+        shared_info: Dict[str, Any],
+    ) -> Dict[AgentID, float]:
+        combined_rewards = {agent: 0.0 for agent in agents}
+        
+        # We will store the breakdown here, averaged across all agents for this step
+        breakdown = {name: 0.0 for name in self.reward_names}
+        
+        for name, reward_fn, weight in zip(self.reward_names, self.reward_fns, self.weights):
+            rewards = reward_fn.get_rewards(agents, state, is_terminated, is_truncated, shared_info)
+            for agent, reward in rewards.items():
+                val = reward * weight
+                combined_rewards[agent] += val
+                breakdown[name] += val
+                
+        # Average the breakdown by number of agents
+        # Average the breakdown by number of agents
+        if agents:
+            for name in breakdown:
+                breakdown[name] /= len(agents)
+                
+        # Store in global state to bypass rlgym process serialization wiping out attributes
+        global GLOBAL_REWARD_BREAKDOWN
+        GLOBAL_REWARD_BREAKDOWN.clear()
+        GLOBAL_REWARD_BREAKDOWN.update(breakdown)
+
+        return combined_rewards
 
 
 class GoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
@@ -193,39 +242,37 @@ def build_pinch_reward(stage: int = 1) -> CombinedReward:
     """
     Build stage-dependent pinch reward.
 
-    Stage 1: heavy spike weight, small dense shaping
-    Stage 2: approach shaping added
-    Stage 3: full shaping, emphasis on goalward ball velocity
+    Stage 1: No goals rewarded. Only heavy spike weight and shaping.
+    Stage 2: Massive spike weight (150) equivalent to a goal (100).
+    Stage 3: Full shaping, emphasis on goalward ball velocity
     """
     if stage == 1:
-        return CombinedReward(
-            (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
-            (GoalwardSpeedSpikeReward(),             8.0),
-            (BallVelocityToGoalReward(),             0.3),
-            (BallWallProximityReward(),               0.05),
-            (ApproachPinchPointReward(),              0.05),
-            (TouchReward(),                           0.1),
-            (TimePenalty(),                           -0.03),
+        return LoggingCombinedReward(
+            (GoalwardSpeedSpikeReward(),            15.0),
+            (BallWallProximityReward(),              0.05),
+            (ApproachPinchPointReward(),             0.05),
+            (TouchReward(),                          0.1),
+            (TimePenalty(),                         -0.03),
         )
     elif stage == 2:
-        return CombinedReward(
+        return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
-            (GoalwardSpeedSpikeReward(),             4.0),
+            (GoalwardSpeedSpikeReward(),           150.0),
             (BallVelocityToGoalReward(),             0.4),
-            (BallWallProximityReward(),               0.1),
-            (ApproachPinchPointReward(),              0.2),
-            (TouchReward(),                           0.05),
-            (TimePenalty(),                           -0.04),
+            (BallWallProximityReward(),              0.1),
+            (ApproachPinchPointReward(),             0.2),
+            (TouchReward(),                          0.05),
+            (TimePenalty(),                         -0.04),
         )
     elif stage == 3:
-        return CombinedReward(
+        return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
             (GoalwardSpeedSpikeReward(),             3.0),
             (BallVelocityToGoalReward(),             0.5),
-            (BallWallProximityReward(),               0.1),
-            (ApproachPinchPointReward(),              0.3),
-            (TouchReward(),                           0.05),
-            (TimePenalty(),                           -0.05),
+            (BallWallProximityReward(),              0.1),
+            (ApproachPinchPointReward(),             0.3),
+            (TouchReward(),                          0.05),
+            (TimePenalty(),                         -0.05),
         )
     else:
         raise ValueError(f"stage must be 1, 2, or 3, got {stage}")

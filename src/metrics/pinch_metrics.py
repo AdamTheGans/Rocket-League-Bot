@@ -7,10 +7,21 @@ and standard metrics (goals, touches, speeds, boost).
 """
 from __future__ import annotations
 
+import collections
 import csv
 import os
 import numpy as np
+import numpy as np
 from rlgym_ppo.util import MetricsLogger
+from rlgym_ppo.util.rlgym_v2_gym_wrapper import RLGymV2GymWrapper
+
+from rewards.pinch_reward import GLOBAL_REWARD_BREAKDOWN
+class StageCompleteException(Exception):
+    """Raised when the moving average metrics indicate the current stage is mastered."""
+    def __init__(self, stage: int):
+        self.stage = stage
+        super().__init__(f"Stage {stage} master criteria met!")
+
 from rlgym.rocket_league import common_values
 
 
@@ -27,22 +38,38 @@ class PinchLogger(MetricsLogger):
     """
 
     CSV_HEADER = [
-        "timesteps", "goals", "ball_touches",
-        "avg_ball_speed", "max_goalward_spike", "avg_goalward_speed",
-        "avg_wall_dist", "avg_car_speed", "avg_boost", "steps",
+        "timesteps", "episodes", "goals", "goal_rate_pct",
+        "ball_touches", "touches_per_ep",
+        "spikes_50kph", "spikes_75kph", "spikes_100kph", "spikes_125kph",
+        "spikes_50kph_pct", "spikes_75kph_pct", "spikes_100kph_pct", "spikes_125kph_pct",
+        "avg_ball_speed", "max_goalward_spike", "max_spike_kph", "avg_goalward_speed",
+        "avg_wall_dist", "avg_car_speed", "avg_boost", "steps", "sim_hours",
+    ]
+
+    TRACKED_REWARDS = [
+        "QuickGoal", "GoalwardSpeedSpike", "BallVelocityToGoal",
+        "BallWallProximity", "ApproachPinchPoint", "Touch", "TimePenalty"
     ]
 
     def __init__(self, csv_path: str = "checkpoints/pinch_metrics.csv",
-                 tick_skip: int = 8, timeout_seconds: float = 2.0):
+                 tick_skip: int = 8, timeout_seconds: float = 2.0, stage: int = 1):
         super().__init__()
         self.csv_path = csv_path
         self.tick_skip = tick_skip
         self.timeout_seconds = timeout_seconds
+        self.stage = stage
         self._prev_goalward: float = 0.0
         # Seconds per decision step
         self._sec_per_step = tick_skip / 120.0
         # Max steps per episode (for estimating episode count)
         self._max_steps_per_ep = int(timeout_seconds / self._sec_per_step)
+
+        # Moving averages for auto-progression
+        self.recent_goal_rates = collections.deque(maxlen=10)
+        self.recent_spike_50 = collections.deque(maxlen=10)
+        self.recent_spike_75 = collections.deque(maxlen=10)
+        self.recent_spike_100 = collections.deque(maxlen=10)
+        self.recent_spike_125 = collections.deque(maxlen=10)
 
     def _collect_metrics(self, game_state) -> list:
         goal_scored_flag = float(getattr(game_state, "goal_scored", False))
@@ -78,9 +105,12 @@ class PinchLogger(MetricsLogger):
             boost = 0.0
             touched = 0.0
 
+        reward_vals = [float(GLOBAL_REWARD_BREAKDOWN.get(name, 0.0)) for name in self.TRACKED_REWARDS]
+
         return [np.array([
             goal_scored_flag, ball_speed, goalward_speed,
             ball_wall_dist, car_speed, boost, touched,
+            *reward_vals
         ])]
 
     def report_metrics(self, collected_metrics, wandb_run, cumulative_timesteps):
@@ -116,6 +146,8 @@ class PinchLogger(MetricsLogger):
         goalward_spikes = []
         prev_gw = 0.0
 
+        component_rewards = {name: [] for name in self.TRACKED_REWARDS}
+
         for step_arrays in collected_metrics:
             arr = step_arrays[0]
             if len(arr) >= 7:
@@ -132,6 +164,10 @@ class PinchLogger(MetricsLogger):
                 if delta > 0 and gw > 0:
                     goalward_spikes.append(delta)
                 prev_gw = gw
+                
+            if len(arr) >= 7 + len(self.TRACKED_REWARDS):
+                for i, name in enumerate(self.TRACKED_REWARDS):
+                    component_rewards[name].append(arr[7 + i])
 
         n_steps = len(goals)
         if n_steps == 0:
@@ -193,12 +229,20 @@ class PinchLogger(MetricsLogger):
         print(f"  Avg boost:                {avg_boost:.1f} / 100")
         print(f"  Steps this iteration:     {n_steps}")
         print(f"  Simulated gameplay:       {sim_time_str}")
+        print(f"{'='*32}")
+        
+        if component_rewards[self.TRACKED_REWARDS[0]]:
+            print(f"  {'='*7} AVG REWARDS (PER STEP) {'='*7}")
+            for name in self.TRACKED_REWARDS:
+                avg_val = float(np.mean(component_rewards[name]))
+                print(f"  {name:25s} {avg_val:.4f}")
         print(f"{'='*32}\n")
 
         self._append_csv(
-            cumulative_timesteps, total_goals, total_touches,
+            cumulative_timesteps, est_episodes, total_goals, goal_rate,
+            total_touches, touches_per_ep, spike_counts,
             avg_ball_speed, max_gw_spike, avg_goalward,
-            avg_wall_dist, avg_car_speed, avg_boost, n_steps,
+            avg_wall_dist, avg_car_speed, avg_boost, n_steps, sim_hours,
         )
 
         if wandb_run is not None:
@@ -218,19 +262,56 @@ class PinchLogger(MetricsLogger):
             for label, (count, pct) in spike_counts.items():
                 log_dict[f"pinch/spikes_{label}"] = count
                 log_dict[f"pinch/spikes_{label}_pct"] = pct
+                
+            if component_rewards[self.TRACKED_REWARDS[0]]:
+                for name in self.TRACKED_REWARDS:
+                    log_dict[f"reward/{name}"] = float(np.mean(component_rewards[name]))
+                    
             wandb_run.log(log_dict)
 
-    def _append_csv(self, timesteps, goals, touches, ball_speed, max_spike,
-                    avg_goalward, wall_dist, car_speed, boost, steps):
+        # Update moving averages and check auto-progression
+        self.recent_goal_rates.append(goal_rate)
+        self.recent_spike_50.append(spike_counts["50kph"][1])
+        self.recent_spike_75.append(spike_counts["75kph"][1])
+        self.recent_spike_100.append(spike_counts["100kph"][1])
+        self.recent_spike_125.append(spike_counts["125kph"][1])
+        
+        if len(self.recent_goal_rates) == 10:
+            avg_goal_rate = sum(self.recent_goal_rates) / 10
+            avg_50 = sum(self.recent_spike_50) / 10
+            avg_75 = sum(self.recent_spike_75) / 10
+            avg_100 = sum(self.recent_spike_100) / 10
+            avg_125 = sum(self.recent_spike_125) / 10
+            
+            if self.stage == 1:
+                if avg_50 > 50.0 and avg_75 > 15.0:
+                    raise StageCompleteException(1)
+            elif self.stage == 2:
+                if avg_50 > 95.0 and avg_75 > 75.0 and avg_100 > 50.0 and avg_125 > 25.0 and avg_goal_rate > 50.0:
+                    raise StageCompleteException(2)
+
+    def _append_csv(self, timesteps, episodes, goals, goal_rate,
+                    touches, touches_per_ep, spike_counts,
+                    ball_speed, max_spike, avg_goalward,
+                    wall_dist, car_speed, boost, steps, sim_hours):
         file_exists = os.path.isfile(self.csv_path)
         os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+
+        # Extract spike tier data in order
+        tier_counts = [spike_counts[l][0] for l in ["50kph", "75kph", "100kph", "125kph"]]
+        tier_pcts = [f"{spike_counts[l][1]:.1f}" for l in ["50kph", "75kph", "100kph", "125kph"]]
+        max_spike_kph = max_spike * 0.036
 
         with open(self.csv_path, "a", newline="") as f:
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(self.CSV_HEADER)
             writer.writerow([
-                timesteps, goals, touches,
-                f"{ball_speed:.1f}", f"{max_spike:.1f}", f"{avg_goalward:.1f}",
-                f"{wall_dist:.1f}", f"{car_speed:.1f}", f"{boost:.1f}", steps,
+                timesteps, episodes, goals, f"{goal_rate:.1f}",
+                touches, f"{touches_per_ep:.1f}",
+                *tier_counts, *tier_pcts,
+                f"{ball_speed:.1f}", f"{max_spike:.1f}", f"{max_spike_kph:.1f}",
+                f"{avg_goalward:.1f}",
+                f"{wall_dist:.1f}", f"{car_speed:.1f}", f"{boost:.1f}",
+                steps, f"{sim_hours:.2f}",
             ])
