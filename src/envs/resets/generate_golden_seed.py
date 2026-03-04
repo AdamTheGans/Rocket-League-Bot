@@ -24,8 +24,8 @@ def main():
     # Spawn ball near the right wall (+X), closer to own net (-Y)
     ball_state = arena.ball.get_state()
     ball_state.pos = rsim.Vec(3800.0, -2500.0, 150.0)
-    # Moving up and fast towards the positive X wall, and forward +Y
-    ball_state.vel = rsim.Vec(2000.0, 1000.0, 1500.0) 
+    # Moving up and fast towards the positive X wall, and slowly forward +Y
+    ball_state.vel = rsim.Vec(2000.0, 150.0, 1500.0) 
     arena.ball.set_state(ball_state)
     
     # Add a dominus car to the arena
@@ -68,25 +68,33 @@ def main():
     ball_pos = ball_state.pos
     ball_vel = ball_state.vel
 
-    # Position car ~20-30 uu behind the ball on the Y axis, and slightly off the wall on the X axis.
-    # Since ball_vel is going +Y, the car should be at a lesser Y.
-    car_x = ball_pos.x - 40.0  # slightly off the right wall (further negative X)
-    car_y = ball_pos.y - 50.0  # behind the ball in its path
-    car_z = ball_pos.z         # level with the ball
+    # Position car ~200 uu towards center field (-X) and ~200 uu behind the ball (-Y)
+    # This gives it a 0.2s run-up to intercept the ball.
+    car_x = ball_pos.x - 200.0  
+    car_y = ball_pos.y - 200.0 
+    car_z = ball_pos.z         
 
     # Orient the car to face the ball/goal
-    # Yaw: facing the +Y direction (since we're attacking +Y)
-    # Roll: Right wall surface normal points in -X. So the roof should face -X, wheels face +X.
-    # A roll of -90 degrees (-pi/2) usually puts wheels towards +X.
-    
+    # Yaw: facing the ball center (-45 degrees / 315 degrees). 
+    # Since +X is Forward, and +Y is Left in Unreal/RLGym coords:
+    # A positive Y value means left. The ball is at +X, +Y (+200, +200).
+    # Wait: The ball is at X=4000, Y=-2400.
+    # The car is at X=3800, Y=-2600.
+    # So relative to car, ball is +200 X, +200 Y.
+    # In Rocket League, `Yaw = math.atan2(dy, dx)`. 
+    # But if it spawned facing 90 deg LEFT of the ball, we need to shift Yaw right by 90 deg.
+    # math.pi / 4 (45deg) - math.pi / 2 (90deg) = -math.pi / 4 (-45deg or 315deg).
     pitch = 0.0
-    yaw = math.pi / 2.0  # facing +Y
-    roll = -math.pi / 2.0 # roll left, so right wheels hit the right wall
+    yaw = -math.pi / 4.0   
+    roll = 0.0 
 
     car_state = car.get_state()
     car_state.pos = rsim.Vec(car_x, car_y, car_z)
-    # Moving forward faster than the ball to pinch it, and matching Z-velocity exactly!
-    car_state.vel = rsim.Vec(400.0, ball_vel.y + 1000.0, ball_vel.z) # 400.0 X to push hard into the wall
+    
+    # car_vel_x = ball_vel_x + (dx / 0.2) = ball_vel_x + 1000.0
+    # car_vel_y = ball_vel_y + (dy / 0.2) = ball_vel_y + 1000.0
+    # car_vel_z = ball_vel_z (level flight)
+    car_state.vel = rsim.Vec(ball_vel.x + 1000.0, ball_vel.y + 1000.0, ball_vel.z) 
 
     from rlgym.rocket_league.math import euler_to_rotation
     
@@ -114,7 +122,7 @@ def main():
         import rlviser_py as vis
         import time
         
-        print("\nLaunching RLViser to view the generated state for 25 seconds...")
+        print("\nLaunching RLViser to view the generated state for 10 seconds...")
         print("NOTE: If Windows Firewall prompts you, you MUST allow it for private networks.")
         print("rlviser.exe requires local UDP access to stream the physics data.")
         # Set boost pad locations
@@ -127,7 +135,19 @@ def main():
         # This prevents the "memory allocation of 72057... bytes failed" Rust panic on boot.
         time.sleep(2.0)
         
-        TIME = 25.0
+        print("Pausing for 10 seconds so you can position the camera...")
+        pad_states = [pad.get_state().is_active for pad in arena.get_boost_pads()]
+        b_state = arena.ball.get_state()
+        car_data = [
+            (c.id, c.team, c.get_config(), c.get_state())
+            for c in arena.get_cars()
+        ]
+        pause_ticks = int(10.0 * arena.tick_rate)
+        for _ in range(pause_ticks):
+            vis.render(0, arena.tick_rate, rsim.GameMode.SOCCAR, pad_states, b_state, car_data)
+            time.sleep(1.0 / arena.tick_rate)
+            
+        TIME = 10.0
         steps = 0
         start_time = time.time()
         

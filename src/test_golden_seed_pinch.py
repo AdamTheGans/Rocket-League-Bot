@@ -53,15 +53,30 @@ def main():
         
         # ── Setup Golden Seed ──
         ball_state = arena.ball.get_state()
+        # Right wall spawn, applying the y_slide offset for variety
+        # 4096 is the wall, radius is ~91.25.
         ball_state.pos = rsim.Vec(4004.75, -2391.86 + y_slide, 308.11)
-        ball_state.vel = rsim.Vec(1993.41, 996.71, 1424.75)
+        ball_state.vel = rsim.Vec(1993.41, 150.0, 1424.75)  # SLOWER Y-VELOCITY FIX
         arena.ball.set_state(ball_state)
         
         car_state = car.get_state()
-        car_state.pos = rsim.Vec(3964.75, -2441.86 + y_slide, 308.11)
-        # Apply a slight inward velocity to mimic the jump/dodge approach
-        car_state.vel = rsim.Vec(400.00, 1996.71, 1424.75)
+        # car_x = ball_x - 200
+        # car_y = ball_y - 200
+        # car_z = ball_z
+        car_state.pos = rsim.Vec(ball_state.pos.x - 200.0, ball_state.pos.y - 200.0, ball_state.pos.z)
+        
+        # Intercept velocity (0.2s targeting)
+        # car_vel_x = ball_vel_x + 1000
+        # car_vel_y = ball_vel_y + 1000
+        car_state.vel = rsim.Vec(ball_state.vel.x + 1000.0, ball_state.vel.y + 1000.0, ball_state.vel.z)
+        
+        # Orient using the Upright Aerial math fixed for Left/Right coordinate systems
+        # The ball is at +200 X, +200 Y relative to the Car.
+        # Yaw pointing towards ball is actually -pi/4 (-45deg) in Rocket League / Unreal coords.
+        pitch, yaw, roll = 0.0, -math.pi / 4.0, 0.0
+        rot_array = euler_to_rotation(np.array([pitch, yaw, roll], dtype=np.float32))
         car_state.rot_mat = rsim.RotMat(*rot_array.flatten())
+        
         car_state.boost = 100.0
         car.set_state(car_state)
         
@@ -87,7 +102,9 @@ def main():
             controls.throttle = 1.0
             controls.boost = True
             
-            # Hardcoded dodge logic (Right dodge into the wall)
+            # Hardcoded dodge logic (Front-Right diagonal dodge)
+            # Since the car is already angled pi/4 towards the ball, 
+            # a simple front-right dodge will push the ball perfectly flush into the goal.
             if tick == delay:
                 controls.jump = True
             elif tick > delay and tick < delay + 4:
@@ -97,14 +114,14 @@ def main():
             elif tick == delay + 5:
                 # Second jump (dodge)
                 controls.jump = True
-                controls.steer = 1.0  # Right (into the right wall)
-                controls.pitch = 0.0
-                controls.roll = 1.0   # Right roll
+                controls.steer = 1.0  # Right
+                controls.pitch = -1.0 # Forward
+                controls.roll = 0.0   
             elif tick > delay + 5 and tick < delay + 10:
                 controls.jump = True
                 controls.steer = 1.0
-                controls.pitch = 0.0
-                controls.roll = 1.0
+                controls.pitch = -1.0
+                controls.roll = 0.0
             
             car.set_controls(controls)
             arena.step(1)

@@ -156,7 +156,7 @@ Deliverable: `backbone_selfplay.pt` + matchup evals.
 ### Phase D — Add “signature weapons” specialists
 Order (recommended):
 D1) Pop → Air Dribble specialist
-D2) Pinch specialist v0 (kuxir/corner pinch first)
+D2) Pinch specialist v0 (Upright aerial wall pinch first)
 D3) Ceiling plays (ceiling shot / ceiling double tap)
 D4) Flip reset family
 
@@ -194,7 +194,7 @@ To credibly pursue top-tier performance:
 
 
 
-## Plan for Specialist: Pinch v0 (Kuxir-style wall/corner pinch)
+## Plan for Specialist: Pinch v0 (Upright Aerial Wall Pinch)
 
 ### Goal
 Train a specialist that can produce a **goalward speed spike** via a wall/corner pinch:

@@ -5,7 +5,7 @@
 A Rocket League bot trained with reinforcement learning (PPO) using RLGym v2 + RocketSim.
 Currently training two specialists:
 - **Grounded Strike**: A 1v0 agent that learns to score from near-ground spawns.
-- **Pinch Specialist**: A 1v0 agent that masters the side wall Kuxir pinch through 3 automated curriculum stages.
+- **Pinch Specialist**: A 1v0 agent that masters the Upright Aerial Wall Pinch through 3 automated curriculum stages.
 
 ---
 

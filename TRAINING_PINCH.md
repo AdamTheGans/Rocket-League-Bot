@@ -1,4 +1,4 @@
-# Training Guide -- Pinch Specialist v0 (Kuxir / Corner Wall Pinch)
+# Training Guide -- Pinch Specialist v0 (Upright Aerial Wall Pinch)
 
 This guide walks through training the pinch specialist from scratch using **backward chaining**: learn the contact micro-skill first, then extend to approach, then to live-ish game states.
 
@@ -43,9 +43,9 @@ The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step re
 
 ## Stage 1: Micro-Skill (Near-Contact Pinch)
 
-**Goal:** Learn to execute the pinch contact itself -- ball is perfectly flush on the side wall, car is positioned linearly to match Z-velocity for a clean intercept. Agent only needs to learn flip/boost timing for a goalward speed spike.
+**Goal:** Learn to execute the pinch contact itself -- ball is rolling up the side wall, car is positioned in an upright aerial trajectory directly intercepting the ball. Agent only needs to learn front/diagonal dodge timing for a goalward speed spike.
 
-**Spawn:** Ball perfectly flush on the side wall (right wall, +X), car precisely mapped to intercept trajectory with matching Z-velocity. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. 2s episodes.
+**Spawn:** Ball rolling up the side wall (+/- X) with low forward momentum, car precisely mapped to intercept trajectory (-200x, -200y offset) facing the ball's center at a 45-degree angle. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. 2s episodes.
 
 ### Train
 
