@@ -43,9 +43,9 @@ The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step re
 
 ## Stage 1: Micro-Skill (Near-Contact Pinch)
 
-**Goal:** Learn to execute the pinch contact itself -- ball is flush on the wall, car is 50-250 uu away and pre-aligned. Agent only needs to learn flip/boost timing for a goalward speed spike.
+**Goal:** Learn to execute the pinch contact itself -- ball is perfectly flush on the side wall, car is positioned linearly to match Z-velocity for a clean intercept. Agent only needs to learn flip/boost timing for a goalward speed spike.
 
-**Spawn:** Ball nearly touching the wall (gap <= ball radius), car 50-250 uu from ball, aggressively pre-aligned (+-0.15 rad yaw noise), 5% corner probability. 2s episodes.
+**Spawn:** Ball perfectly flush on the side wall (right wall, +X), car precisely mapped to intercept trajectory with matching Z-velocity. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. 2s episodes.
 
 ### Train
 

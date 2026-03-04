@@ -223,9 +223,9 @@ Pinches are rare under random exploration. We make them learnable via:
 ### Reset distribution (tight)
 Spawn states ~10–20 frames before the pinch contact.
 Example (conceptual):
-- Ball: near side wall in offensive half, low-to-mid height (tuned), low random vel/spin.
-- Car: already near wall, oriented toward pinch point, moderate forward speed, small yaw/pitch noise.
-- Start with “easy” geometry: ball close to wall and close to car contact path.
+- Ball: perfectly flush against side wall, high velocity towards opponent goal.
+- Car: aggressively pre-aligned on intercept trajectory, identical Z-velocity as the ball.
+- Variance: apply randomized `y_slide` offsets (+/- 1000uu) to both car and ball, and natively random X-axis mirroring to train equally on the left and right walls. This prevents static positional overfitting while keeping the micro-skill pure.
 
 ### Reward (anti-hacking)
 Let g be unit vector toward opponent goal.

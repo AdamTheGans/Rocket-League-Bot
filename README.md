@@ -160,7 +160,9 @@ Rocket-League-Bot/
 ├── src/
 │   ├── envs/
 │   │   ├── grounded_strike.py      # 1v0 strike environment setup
-│   │   └── pinch.py                # 1v0 pinch environment setup
+│   │   ├── pinch.py                # 1v0 pinch environment setup
+│   │   └── resets/
+│   │       └── generate_golden_seed.py # Generates precise pinch setups and visualizes them using rlviser
 │   ├── rewards/
 │   │   ├── strike_reward.py        # Strike reward function
 │   │   └── pinch_reward.py         # Pinch reward function
@@ -175,6 +177,7 @@ Rocket-League-Bot/
 │   ├── eval_specialist_1.py        # Strike Evaluation + GIF generation
 │   ├── train_pinch.py              # Pinch training config (supports --stage auto-progression)
 │   ├── eval_pinch.py               # Pinch Evaluation + GIF generation
+│   ├── test_golden_seed_pinch.py   # Renders generated pinch simulations natively in 3D RLViser
 │   ├── verify_env.py               # Quick strike sanity test
 │   └── verify_pinch_env.py         # Quick pinch sanity test
 ├── checkpoints/                    # Saved model checkpoints
