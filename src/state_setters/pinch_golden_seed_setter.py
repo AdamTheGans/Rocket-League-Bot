@@ -31,7 +31,7 @@ class PinchGoldenSeedSetter:
         
         self.car_pos = np.array([-3686.92, -2466.33, 222.20], dtype=np.float32)
         self.car_vel = np.array([-2100.00, 500.00, 25.00], dtype=np.float32)
-        self.car_euler = np.array([-0.52, 2.99, 1.86], dtype=np.float32)
+        self.car_euler = np.array([0.52, 2.99, 1.86], dtype=np.float32) # Inverted Pitch to point nose UP instead of down
         
         # --- Domain Randomization Bounds ---
         # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
@@ -39,7 +39,7 @@ class PinchGoldenSeedSetter:
         # Avoid randomizing ball X position (it's already resting on the wall)
         self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
         
-        self.vel_noise_car = np.array([100.0, 100.0, 100.0], dtype=np.float32)
+        self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
         # Avoid randomizing ball X velocity (keep it glued to the wall)
         self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
 
@@ -88,9 +88,18 @@ class PinchGoldenSeedSetter:
                 c_vel[0] *= -1.0
                 
                 # Invert Euler angles for X-mirroring (Pitch, Yaw, Roll)
-                # Yaw inverts to face the opposite direction symmetrically
+                # Pitch stays the same relative to the ground.
+                # Yaw inverts (Z-axis rotation): if angle is theta, mirrored is pi - theta, but in RLGym's [-pi, pi] range
+                # wait, actually if we negate X, a vector (x, y) -> (-x, y). 
+                # The yaw rotation matrix handles this, so we must manually calculate:
+                # new_yaw = math.pi - old_yaw (normalized)
+                c_yaw = c_euler[1]
+                nyaw = math.pi - c_yaw
+                if nyaw > math.pi: nyaw -= 2 * math.pi
+                if nyaw < -math.pi: nyaw += 2 * math.pi
+                c_euler[1] = nyaw
+                
                 # Roll inverts to maintain the ceiling/wall orientation
-                c_euler[1] *= -1.0
                 c_euler[2] *= -1.0
 
         # Set Ball state

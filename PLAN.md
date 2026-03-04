@@ -226,15 +226,15 @@ Example (conceptual):
 - Ball: perfectly flush against side wall, high velocity towards opponent goal.
 - Car: aggressively pre-aligned on intercept trajectory, exact identical Z-coordinate to the ball's center to prevent sliding underneath.
 - **Physics Hack**: The car's geometry is forced deeply into the wall's bounding box (`x_offset` up to -120uu) at the moment of impact. Because RocketSim resolves discreet 120hz frame collisions via clipping, wedging the ball like this forces a massive 1200+ uu/s impulse pinch outwards into the field upon impact, which otherwise would not happen if the car just brushed the ball at high speed.
-- Variance: apply randomized `y_slide` offsets (+/- 1000uu) to both car and ball, and natively random X-axis mirroring to train equally on the left and right walls. This prevents static positional overfitting while keeping the micro-skill pure.
+- Variance: Apply robust domain randomization with independent `[X, Y, Z]` noise vectors for both the car's and ball's positions and velocities (locking ball X-variance to 0 to prevent wall clipping). We apply a large +/- Y-slide (up to 3000uu) and natively random `50%` X-axis mirroring to train equally on the left and right walls.
 
 ### Reward (anti-hacking)
 Let g be unit vector toward opponent goal.
 - r_goal: big on scoring
-- r_spike: reward positive **increase** in (ball_vel · g) right after contact (speed spike, goalward)
+- r_spike: `ZFilteredGoalwardSpikeReward` tracks the absolute *maximum* speed achieved in an episode (to prevent farming exploits) and scales the multiplier linearly down towards 10% if the ball's vertical trajectory leaves the optimal flat zone of `[300, 550] uu/s`.
 - r_align: small shaping for keeping ball motion in a forward cone (ball_vel · g > 0)
 - r_bad: penalty if ball_vel · g < 0 (danger clear toward own half)
-- r_time: small per-step penalty (encourage immediate execution)
+- r_time: disabled for Stage 1 to prevent instant-whiff incentives.
 
 ### Termination
 - goal

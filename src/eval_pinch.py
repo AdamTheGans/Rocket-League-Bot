@@ -65,6 +65,219 @@ def _summarize_pinch(results: List[EpisodeResult], spike_maxes: List[float]) -> 
     }
 
 
+def visualize_pinch(checkpoints_root: str, stage: int = 1):
+    import math
+    import rlviser_py as vis
+    import RocketSim as rsim
+
+    env = build_env(render=False, tick_skip=8, stage=stage)
+
+    policy_path = _find_latest_policy_path(checkpoints_root)
+    print(f"Loading policy: {policy_path}")
+    policy = _load_policy(policy_path, env)
+
+    obs_mean, obs_std = _load_obs_stats(policy_path)
+    if obs_mean is not None:
+        print(f"Loaded obs standardization stats (dim={obs_mean.shape[0]})")
+    else:
+        print("WARNING: No obs standardization stats found")
+
+    # Get underlying arena
+    rlgym_env = getattr(env, "rlgym_env", env.unwrapped.rlgym_env if hasattr(env, "unwrapped") and hasattr(env.unwrapped, "rlgym_env") else env)
+    engine = rlgym_env.transition_engine
+    arena = engine._arena
+
+    print("\nLaunching RLViser to view the agent in action...")
+    print("NOTE: If Windows Firewall prompts you, you MUST allow it for private networks.")
+    print("rlviser.exe requires local UDP access to stream the physics data.")
+    
+    vis.set_boost_pad_locations([pad.get_pos().as_tuple() for pad in arena.get_boost_pads()])
+    time.sleep(2.0)
+
+    scenarios_needed = {"right": 2, "left": 2}
+    scenarios_run = 0
+    first_scenario = True
+
+    while scenarios_needed["right"] > 0 or scenarios_needed["left"] > 0:
+        obs = _reset_env(env)
+        
+        ball_x = arena.ball.get_state().pos.x
+        side = "right" if ball_x > 0 else "left"
+        
+        if scenarios_needed[side] <= 0:
+            continue
+            
+        scenarios_needed[side] -= 1
+        scenarios_run += 1
+        
+        print(f"\n--- Scenario {scenarios_run}/4: {side.capitalize()} Wall ---")
+        
+        delay_seconds = 7 if first_scenario else 4
+        first_scenario = False
+        
+        print(f"Showing starting state statically for {delay_seconds} seconds...")
+        pause_ticks = int(delay_seconds * 120)
+        start_time = time.time()
+        for i in range(pause_ticks):
+            pad_states = [pad.get_state().is_active for pad in arena.get_boost_pads()]
+            b_state = arena.ball.get_state()
+            try:
+                car_data = [(c.id, c.team, c.get_config(), c.get_state()) for c in arena.get_cars()]
+            except:
+                car_data = []
+            vis.render(0, 120, rsim.GameMode.SOCCAR, pad_states, b_state, car_data)
+            
+            target_time = start_time + (i / 120.0)
+            now = time.time()
+            if target_time > now:
+                time.sleep(target_time - now)
+            
+        original_engine_step = engine.step
+        
+        start_time = time.time()
+        global_steps = 0
+        
+        def hooked_engine_step(actions, shared_info):
+            nonlocal global_steps
+            if len(engine._cars) == 0:
+                steps = 1
+            else:
+                action = next(iter(actions.values()))
+                steps = action.shape[0]
+
+            for step in range(steps):
+                if engine._rlbot_delay:
+                    engine._arena.step(1)
+
+                for agent_id, action in actions.items():
+                    controls = rsim.CarControls()
+                    controls.throttle = action[step, 0]
+                    controls.steer = action[step, 1]
+                    controls.pitch = action[step, 2]
+                    controls.yaw = action[step, 3]
+                    controls.roll = action[step, 4]
+                    controls.jump = bool(action[step, 5])
+                    controls.boost = bool(action[step, 6])
+                    controls.handbrake = bool(action[step, 7])
+
+                    engine._cars[agent_id].set_controls(controls)
+
+                if not engine._rlbot_delay:
+                    engine._arena.step(1)
+
+                engine._tick_count += 1
+                
+                pad_states = [pad.get_state().is_active for pad in arena.get_boost_pads()]
+                b_state = arena.ball.get_state()
+                try:
+                    car_data = [(c.id, c.team, c.get_config(), c.get_state()) for c in arena.get_cars()]
+                except:
+                    car_data = []
+                    
+                vis.render(0, 120, rsim.GameMode.SOCCAR, pad_states, b_state, car_data)
+                
+                # Dynamic sleep to correct for python execution overhead
+                target_time = start_time + (global_steps / 120.0)
+                now = time.time()
+                if target_time > now:
+                    time.sleep(target_time - now)
+                global_steps += 1
+
+            return engine._get_state()
+                
+        engine.step = hooked_engine_step
+        
+        ep_max_speed = 0.0
+        ep_max_gw_spike = 0.0
+        prev_goalward = 0.0
+        
+        state = arena.ball.get_state()
+        ball_pos = np.asarray(state.pos.as_tuple(), dtype=np.float32)
+        goal = np.array([0, common_values.BACK_NET_Y, 0], dtype=np.float32)
+        diff = goal - ball_pos
+        dist = float(np.linalg.norm(diff))
+        goal_dir = diff / dist if dist > 1e-6 else np.array([0, 1, 0], dtype=np.float32)
+        prev_goalward = float(np.dot(np.asarray(state.vel.as_tuple(), dtype=np.float32), goal_dir))
+        
+        done = False
+        steps = 0
+        max_duration_seconds = 7.0
+        max_steps = int(max_duration_seconds * 120 / 8)
+        
+        print("Agent is playing...")
+        while not done and steps < max_steps:
+            policy_obs = _standardize_obs(obs, obs_mean, obs_std) if obs_mean is not None else obs
+
+            if hasattr(policy, "get_action"):
+                with torch.no_grad():
+                    action, _ = policy.get_action(policy_obs, deterministic=True)
+            else:
+                with torch.no_grad():
+                    logits = policy(torch.from_numpy(policy_obs).float().unsqueeze(0))
+                    action = int(torch.argmax(logits, dim=-1).item())
+
+            action_arr = _to_action_for_env(action)
+            obs, r, terminated, truncated, info = _step_env(env, action_arr)
+            
+            steps += 1
+            done = terminated or truncated
+            
+            # Use manual physics interrogation just like pinch_reward.py for accurate metrics
+            state = arena.ball.get_state()
+            vel_arr = np.asarray(state.vel.as_tuple(), dtype=np.float32)
+            pos_arr = np.asarray(state.pos.as_tuple(), dtype=np.float32)
+            
+            raw_spd = math.sqrt(vel_arr[0]**2 + vel_arr[1]**2 + vel_arr[2]**2)
+            ep_max_speed = max(ep_max_speed, raw_spd)
+            
+            diff = goal - pos_arr
+            dist = float(np.linalg.norm(diff))
+            goal_dir = diff / dist if dist > 1e-6 else np.array([0, 1, 0], dtype=np.float32)
+            
+            curr_goalward = float(np.dot(vel_arr, goal_dir))
+            
+            delta = curr_goalward - prev_goalward
+            if delta > 0:
+                ball_z_vel = vel_arr[2]
+                if 300.0 <= ball_z_vel <= 550.0:
+                    multiplier = 1.0
+                else:
+                    z_diff = min(abs(ball_z_vel - 300.0), abs(ball_z_vel - 550.0))
+                    multiplier = max(0.1, 1.0 - (z_diff / 500.0))
+                
+                gw_spike = delta * multiplier
+                # Convert back up to raw UU diff to match how training logs it implicitly during backward pass summation
+                ep_max_gw_spike = max(ep_max_gw_spike, gw_spike)
+            
+            prev_goalward = curr_goalward
+
+        engine.step = original_engine_step
+        
+        remaining_ticks = int(max_duration_seconds * 120) - (steps * 8)
+        if remaining_ticks > 0:
+            print(f"Goal scored/episode ended early! Letting physics play out remaining {remaining_ticks/120.0:.2f}s...")
+            for _ in range(remaining_ticks):
+                arena.step(1)
+                pad_states = [pad.get_state().is_active for pad in arena.get_boost_pads()]
+                b_state = arena.ball.get_state()
+                try:
+                    car_data = [(c.id, c.team, c.get_config(), c.get_state()) for c in arena.get_cars()]
+                except:
+                    car_data = []
+                vis.render(0, 120, rsim.GameMode.SOCCAR, pad_states, b_state, car_data)
+                
+                target_time = start_time + (global_steps / 120.0)
+                now = time.time()
+                if target_time > now:
+                    time.sleep(target_time - now)
+                global_steps += 1
+
+        print(f"Attempt {scenarios_run} Top Speed: {ep_max_speed:.2f} | FilteredGoalward: {ep_max_gw_spike:.2f}")
+
+    print("\nVisualizations complete!")
+    vis.quit()
+
+
 def evaluate_pinch(
     checkpoints_root: str,
     stage: int = 1,
@@ -258,14 +471,20 @@ if __name__ == "__main__":
     parser.add_argument("--stage", type=int, required=True, choices=[1, 2, 3])
     parser.add_argument("--episodes", type=int, default=200)
     parser.add_argument("--gif-episodes", type=int, default=2)
+    parser.add_argument("--visualize", action="store_true", help="Launch RLViser and playback 4 scenarios (7s and 4s startup delays)")
     args = parser.parse_args()
 
     root = _discover_pinch_root(args.stage)
-    evaluate_pinch(
-        root,
-        stage=args.stage,
-        n_episodes=args.episodes,
-        render=False,
-        record_gif_episodes=args.gif_episodes,
-        gif_out_path=os.path.join("checkpoints", "pinch_eval.gif"),
-    )
+    
+    if args.visualize:
+        print("\n=== STARTING 3D VISUALIZATION ===")
+        visualize_pinch(root, stage=args.stage)
+    else:
+        evaluate_pinch(
+            root,
+            stage=args.stage,
+            n_episodes=args.episodes,
+            render=False,
+            record_gif_episodes=args.gif_episodes,
+            gif_out_path=os.path.join("checkpoints", "pinch_eval.gif"),
+        )

@@ -32,12 +32,12 @@ The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step re
 | Component | Stage 1 | Stage 2 | Stage 3 | Description |
 |---|---|---|---|---|
 | **QuickGoal** | *Disabled* | `100.0` | `100.0` | Sparse reward for actually scoring. Base: 1.0, Bonus: +0.5. |
-| **GoalwardSpeedSpike** | `15.0` | `150.0` | `3.0` | Dense reward for positive *increases* (delta) in goalward ball velocity. |
+| **ZFilteredGoalwardSpike** | `150.0` | `150.0` | `3.0` | Dense reward tracking latch max goalward ball velocity, penalized linearly if out of `[300, 550] uu/s` Z-velocity bounds. |
 | **BallVelocityToGoal** | *Disabled* | `0.4` | `0.5` | Dense shaping for keeping the ball moving toward the goal continuously. |
 | **ApproachPinchPoint** | `0.05` | `0.2` | `0.3` | Shaping to guide the car exactly to the projected contact point on the wall. |
 | **BallWallProximity** | `0.05` | `0.1` | `0.1` | Shaping to keep ball near the wall (prevents runaway play). |
-| **Touch** | `0.1` | `0.05` | `0.05` | Flat reward for touching the ball. Heavily down-scaled to prevent dribbling exploits. |
-| **TimePenalty** | `-0.03` | `-0.04` | `-0.05` | Constant negative step penalty to encourage immediate execution. |
+| **Touch** | `5.0` | `0.05` | `0.05` | Flat reward for touching the ball. Strictly granted *exactly once* per episode to prevent dribbling exploits. |
+| **TimePenalty** | `0.0` | `-0.04` | `-0.05` | Constant negative step penalty (disabled in Stage 1). |
 
 ---
 
@@ -45,7 +45,7 @@ The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step re
 
 **Goal:** Learn to execute the pinch contact itself -- ball is rolling up the side wall, car is positioned in an upright aerial trajectory directly intercepting the ball. Agent only needs to learn front/diagonal dodge timing for a goalward speed spike.
 
-**Spawn:** Ball rolling up the side wall (+/- X) with low forward momentum, car precisely mapped to intercept trajectory (-200x, -200y offset) facing the ball's center at a 45-degree angle. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. The mathematical intercept strictly forces the car deep into the wall's geometric bounding box (X offset up to -120.0uu) and exactly aligns the center-of-mass Z-coordinate to the ball's center, explicitly forcing RocketSim's impulse collision engine to calculate a high-velocity pinch on the next discrete frame. A dedicated `generate_golden_seed.py` random grid search runs to refine these impact permutations alongside dodge angles. 2s episodes.
+**Spawn:** Ball rolling up the *Right Wall* (+X) with low forward momentum, car precisely mapped to intercept trajectory. Spawn includes fully independent `[X, Y, Z]` noise vectors for tracking positions and velocities to cleanly prevent trajectory overfitting. It applies a random sliding Y-variance up to 3000uu and a 50% chance to mirror across the X-axis for left wall training. The mathematical intercept strictly forces the car deep into the wall's geometric bounding box (X offset up to -120.0uu) and exactly aligns the center-of-mass Z-coordinate to the ball's center, explicitly forcing RocketSim's impulse collision engine to calculate a high-velocity pinch on the next discrete frame. A dedicated `generate_golden_seed.py` random grid search runs to refine these impact permutations alongside dodge angles. 2s episodes.
 
 ### Train
 
