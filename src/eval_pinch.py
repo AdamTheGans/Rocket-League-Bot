@@ -65,12 +65,12 @@ def _summarize_pinch(results: List[EpisodeResult], spike_maxes: List[float]) -> 
     }
 
 
-def visualize_pinch(checkpoints_root: str, stage: int = 1):
+def visualize_pinch(checkpoints_root: str, stage: int = 1, difficulty: int = 1):
     import math
     import rlviser_py as vis
     import RocketSim as rsim
 
-    env = build_env(render=False, tick_skip=8, stage=stage)
+    env = build_env(render=False, tick_skip=8, stage=stage, difficulty_level=difficulty)
 
     policy_path = _find_latest_policy_path(checkpoints_root)
     print(f"Loading policy: {policy_path}")
@@ -201,7 +201,10 @@ def visualize_pinch(checkpoints_root: str, stage: int = 1):
         
         done = False
         steps = 0
-        max_duration_seconds = 7.0
+        if stage == 1:
+            max_duration_seconds = float(difficulty + 1.0)
+        else:
+            max_duration_seconds = 7.0
         max_steps = int(max_duration_seconds * 120 / 8)
         
         print("Agent is playing...")
@@ -281,6 +284,7 @@ def visualize_pinch(checkpoints_root: str, stage: int = 1):
 def evaluate_pinch(
     checkpoints_root: str,
     stage: int = 1,
+    difficulty: int = 1,
     n_episodes: int = 200,
     render: bool = False,
     tick_skip: int = 8,
@@ -289,7 +293,7 @@ def evaluate_pinch(
     record_gif_episodes: int = 2,
     gif_out_path: str = os.path.join("checkpoints", "pinch_eval.gif"),
 ):
-    env = build_env(render=render, tick_skip=tick_skip, stage=stage)
+    env = build_env(render=render, tick_skip=tick_skip, stage=stage, difficulty_level=difficulty)
 
     policy_path = _find_latest_policy_path(checkpoints_root)
     print(f"Loading policy: {policy_path}")
@@ -471,6 +475,7 @@ if __name__ == "__main__":
     parser.add_argument("--stage", type=int, required=True, choices=[1, 2, 3])
     parser.add_argument("--episodes", type=int, default=200)
     parser.add_argument("--gif-episodes", type=int, default=2)
+    parser.add_argument("--difficulty", type=int, default=1, choices=[1, 2, 3], help="Difficulty level for Domain Randomization in Stage 1")
     parser.add_argument("--visualize", action="store_true", help="Launch RLViser and playback 4 scenarios (7s and 4s startup delays)")
     args = parser.parse_args()
 
@@ -478,11 +483,12 @@ if __name__ == "__main__":
     
     if args.visualize:
         print("\n=== STARTING 3D VISUALIZATION ===")
-        visualize_pinch(root, stage=args.stage)
+        visualize_pinch(root, stage=args.stage, difficulty=args.difficulty)
     else:
         evaluate_pinch(
             root,
             stage=args.stage,
+            difficulty=args.difficulty,
             n_episodes=args.episodes,
             render=False,
             record_gif_episodes=args.gif_episodes,

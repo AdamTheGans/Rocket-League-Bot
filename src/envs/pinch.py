@@ -20,7 +20,7 @@ from rewards.pinch_reward import build_pinch_reward, build_golden_seed_reward
 from state_setters.pinch_golden_seed_setter import PinchGoldenSeedSetter
 
 
-def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
+def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1, difficulty_level: int = 1):
     """
     Build the pinch specialist environment.
 
@@ -32,9 +32,15 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
         Action repeat frames (default 8, the RLGym standard).
     stage : int
         Training stage (1, 2, or 3). Controls spawn distribution and timeout.
+    difficulty_level : int
+        Difficulty level for the Stage 1 Golden Seed Setting.
     """
-    spawn_mutator = PinchGoldenSeedSetter(randomize=True)
-    episode_seconds = 2.0
+    spawn_mutator = PinchGoldenSeedSetter(randomize=True, difficulty_level=difficulty_level)
+    
+    if stage == 1:
+        episode_seconds = float(difficulty_level + 1.0)
+    else:
+        episode_seconds = 2.0
 
     action_parser = RepeatAction(LookupTableAction(), repeats=int(tick_skip))
 

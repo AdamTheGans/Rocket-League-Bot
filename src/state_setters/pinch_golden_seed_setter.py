@@ -21,7 +21,7 @@ class PinchGoldenSeedSetter:
     policy overfitting. Adds the Critical Flip Timer fix to grant an infinite dodge timer.
     """
 
-    def __init__(self, randomize: bool = True):
+    def __init__(self, randomize: bool = True, difficulty_level: int = 1):
         self.randomize = randomize
         
         # --- The Baseline State (The Golden Seed) ---
@@ -34,18 +34,44 @@ class PinchGoldenSeedSetter:
         self.car_euler = np.array([0.52, 2.99, 1.86], dtype=np.float32) # Inverted Pitch to point nose UP instead of down
         
         # --- Domain Randomization Bounds ---
-        # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
-        self.pos_noise_car = np.array([15.0, 15.0, 15.0], dtype=np.float32)
-        # Avoid randomizing ball X position (it's already resting on the wall)
-        self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
+        if difficulty_level == 1:
+            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+            self.pos_noise_car = np.array([15.0, 15.0, 15.0], dtype=np.float32)
+            # Avoid randomizing ball X position (it's already resting on the wall)
+            self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
         
-        self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
-        # Avoid randomizing ball X velocity (keep it glued to the wall)
-        self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
+            self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
+            # Avoid randomizing ball X velocity (keep it glued to the wall)
+            self.vel_noise_ball = np.array([0.0, 25.0, 75.0], dtype=np.float32)
 
-        self.euler_noise_rad = 0.05    # +/- 5 degrees for pitch, yaw, roll
-        self.y_slide_uu = 1000.0       # Max distance to slide up/down the wall
+            self.euler_noise_rad = 0.1    # +/- 10 degrees for pitch, yaw, roll
+            self.y_slide_uu = 500.0       # Max distance to slide up/down the wall
 
+        elif difficulty_level == 2:
+            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+            self.pos_noise_car = np.array([25.0, 25.0, 25.0], dtype=np.float32)
+            # Avoid randomizing ball X position (it's already resting on the wall)
+            self.pos_noise_ball = np.array([0.0, 25.0, 25.0], dtype=np.float32)
+        
+            self.vel_noise_car = np.array([200.0, 200.0, 100.0], dtype=np.float32)
+            # Avoid randomizing ball X velocity (keep it glued to the wall)
+            self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
+
+            self.euler_noise_rad = 0.2    # +/- 20 degrees for pitch, yaw, roll
+            self.y_slide_uu = 1000.0       # Max distance to slide up/down the wall
+        
+        elif difficulty_level == 3:
+            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+            self.pos_noise_car = np.array([35.0, 35.0, 35.0], dtype=np.float32)
+            # Avoid randomizing ball X position (it's already resting on the wall)
+            self.pos_noise_ball = np.array([0.0, 35.0, 35.0], dtype=np.float32)
+        
+            self.vel_noise_car = np.array([250.0, 250.0, 150.0], dtype=np.float32)
+            # Avoid randomizing ball X velocity (keep it glued to the wall)
+            self.vel_noise_ball = np.array([0.0, 75.0, 225.0], dtype=np.float32)
+
+            self.euler_noise_rad = 0.35    # +/- 35 degrees for pitch, yaw, roll
+            self.y_slide_uu = 1500.0       # Max distance to slide up/down the wall
 
     def apply(self, state, shared_info=None):
         """

@@ -21,11 +21,12 @@ from metrics.pinch_metrics import PinchLogger
 # Module-level stage variable -- set by main() before Learner is created.
 # Must be module-level so env_factory can be pickled for multiprocessing.
 _STAGE: int = 1
+_DIFFICULTY: int = 1
 
 
 def env_factory():
-    """Build the pinch env. Uses module-level _STAGE (pickle-safe)."""
-    return build_env(render=False, tick_skip=8, stage=_STAGE)
+    """Build the pinch env. Uses module-level _STAGE and _DIFFICULTY (pickle-safe)."""
+    return build_env(render=False, tick_skip=8, stage=_STAGE, difficulty_level=_DIFFICULTY)
 
 
 def parse_args():
@@ -35,6 +36,10 @@ def parse_args():
     parser.add_argument(
         "--stage", type=int, required=True, choices=[1, 2, 3],
         help="Training stage: 1=micro-skill, 2=approach, 3=live-ish",
+    )
+    parser.add_argument(
+        "--difficulty", type=int, default=1, choices=[1, 2, 3],
+        help="Difficulty level for Domain Randomization in Stage 1 (default: 1).",
     )
     parser.add_argument(
         "--gpu", action="store_true",
@@ -92,10 +97,11 @@ def _find_latest_checkpoint_in(folder: str) -> str | None:
 
 
 def main():
-    global _STAGE
+    global _STAGE, _DIFFICULTY
 
     args = parse_args()
     _STAGE = args.stage
+    _DIFFICULTY = args.difficulty
     stage = args.stage
 
     os.makedirs("checkpoints", exist_ok=True)
@@ -149,6 +155,8 @@ def main():
 
         print(f"\n{'='*50}")
         print(f"  PINCH SPECIALIST -- Stage {stage}")
+        if stage == 1:
+            print(f"  Difficulty level: {_DIFFICULTY}")
         print(f"  {'GPU mode' if args.gpu else 'CPU mode'}")
         print(f"  n_proc={n_proc}  batch={batch_size}  lr={lr}")
         print(f"  Checkpoint folder: {checkpoint_folder}")
@@ -172,6 +180,11 @@ def main():
             # Fresh start or same-stage auto-resume via "latest"
             load_folder = "latest"
 
+        if stage == 1:
+            ep_secs = float(_DIFFICULTY + 1.0)
+        else:
+            ep_secs = 2.0
+
         learner = Learner(
             env_create_function=env_factory,
             n_proc=n_proc,
@@ -179,7 +192,7 @@ def main():
             metrics_logger=PinchLogger(
                 csv_path=csv_path,
                 tick_skip=8,
-                timeout_seconds=2.0,
+                timeout_seconds=ep_secs,
                 stage=stage,
             ),
             random_seed=args.seed,

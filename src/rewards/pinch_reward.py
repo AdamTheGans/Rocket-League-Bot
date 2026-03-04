@@ -153,11 +153,11 @@ class ZFilteredGoalwardSpikeReward(RewardFunction[AgentID, GameState, float]):
     the absolute maximum speed registered in the episode to prevent repetitive acceleration farming.
     
     Additionally, applies a Z-velocity penalty multiplier:
-    - Target flat range: 300 to 550 uu/s (multiplier = 1.0)
+    - Target flat range: 200 to 550 uu/s (multiplier = 1.0)
     - Linearly scales down the multiplier based on distance from that target range (max drop to 0.1).
     """
 
-    def __init__(self, target_z_min: float = 300.0, target_z_max: float = 550.0, max_z_diff: float = 500.0):
+    def __init__(self, target_z_min: float = 200.0, target_z_max: float = 550.0, max_z_diff: float = 500.0):
         super().__init__()
         self._max_goalward: Dict[AgentID, float] = {}
         self.target_z_min = target_z_min
