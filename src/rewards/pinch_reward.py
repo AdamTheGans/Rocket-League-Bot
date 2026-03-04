@@ -352,3 +352,22 @@ def build_pinch_reward(stage: int = 1) -> CombinedReward:
         )
     else:
         raise ValueError(f"stage must be 1, 2, or 3, got {stage}")
+
+
+def build_golden_seed_reward() -> CombinedReward:
+    """
+    Reward function tailored strictly for the Golden Seed initialization.
+    
+    Design:
+      - QuickGoalReward (100): Massive reward for scoring, with speed bonus.
+      - GoalwardSpeedSpikeReward (150.0): Huge reward for the actual pinch impact.
+        Properly aligned towards the opponent's goal.
+      - TouchReward (5.0): Dense reward for just finding the ball and dodging into it.
+      - TimePenalty (-0.05): General urgency to act fast.
+    """
+    return LoggingCombinedReward(
+        (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
+        (GoalwardSpeedSpikeReward(),           150.0),
+        (TouchReward(),                          5.0),
+        (TimePenalty(),                         -0.05),
+    )

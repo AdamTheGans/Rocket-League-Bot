@@ -179,7 +179,7 @@ def main():
             metrics_logger=PinchLogger(
                 csv_path=csv_path,
                 tick_skip=8,
-                timeout_seconds={1: 2.0, 2: 4.0, 3: 6.0}[stage],
+                timeout_seconds=15.0,
                 stage=stage,
             ),
             random_seed=args.seed,

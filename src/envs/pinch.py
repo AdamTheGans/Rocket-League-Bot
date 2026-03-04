@@ -16,8 +16,10 @@ from rlgym.rocket_league import common_values
 
 from rlgym_ppo.util import RLGymV2GymWrapper
 
-from rewards.pinch_reward import build_pinch_reward
+from rewards.pinch_reward import build_pinch_reward, build_golden_seed_reward
 from state_setters.pinch_spawn_setter import PinchSpawnMutator
+from state_setters.pinch_golden_seed_setter import PinchGoldenSeedSetter
+from envs.terminations import EarlyWhiffCondition
 
 
 def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
@@ -33,12 +35,15 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
     stage : int
         Training stage (1, 2, or 3). Controls spawn distribution and timeout.
     """
-    spawn_mutator = PinchSpawnMutator(stage=stage)
-    episode_seconds = spawn_mutator.timeout_seconds
+    spawn_mutator = PinchGoldenSeedSetter(randomize=True)
+    episode_seconds = 15.0
 
     action_parser = RepeatAction(LookupTableAction(), repeats=int(tick_skip))
 
-    termination_condition = GoalCondition()
+    termination_condition = AnyCondition(
+        GoalCondition(),
+        EarlyWhiffCondition(max_whiff_ticks=120, ground_z_threshold=100.0, min_speed_threshold=1500.0)
+    )
     truncation_condition = AnyCondition(
         TimeoutCondition(timeout_seconds=float(episode_seconds))
     )
@@ -68,7 +73,7 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
         state_mutator=state_mutator,
         obs_builder=obs_builder,
         action_parser=action_parser,
-        reward_fn=build_pinch_reward(stage=stage),
+        reward_fn=build_golden_seed_reward(),
         termination_cond=termination_condition,
         truncation_cond=truncation_condition,
         transition_engine=RocketSimEngine(),
