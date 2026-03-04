@@ -34,10 +34,18 @@ class PinchGoldenSeedSetter:
         self.car_euler = np.array([-0.52, 2.99, 1.86], dtype=np.float32)
         
         # --- Domain Randomization Bounds ---
-        # NOTE to user: Adjust these values to widen or narrow the variance.
-        self.pos_noise_uu = 15.0       # +/- 15 uu for car and ball positions
-        self.vel_noise_pct = 0.03      # +/- 3% for car and ball velocities
+        # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+        self.pos_noise_car = np.array([15.0, 15.0, 15.0], dtype=np.float32)
+        # Avoid randomizing ball X position (it's already resting on the wall)
+        self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
+        
+        self.vel_noise_car = np.array([100.0, 100.0, 100.0], dtype=np.float32)
+        # Avoid randomizing ball X velocity (keep it glued to the wall)
+        self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
+
         self.euler_noise_rad = 0.05    # +/- 5 degrees for pitch, yaw, roll
+        self.y_slide_uu = 1000.0       # Max distance to slide up/down the wall
+
 
     def apply(self, state, shared_info=None):
         """
@@ -55,18 +63,35 @@ class PinchGoldenSeedSetter:
 
         # Apply Domain Randomization curriculum if requested
         if self.randomize:
-            # Add uniform noise to positions
-            b_pos += rng.uniform(-self.pos_noise_uu, self.pos_noise_uu, size=3)
-            c_pos += rng.uniform(-self.pos_noise_uu, self.pos_noise_uu, size=3)
+            # Independent Position Noise
+            b_pos += rng.uniform(-self.pos_noise_ball, self.pos_noise_ball, size=3)
+            c_pos += rng.uniform(-self.pos_noise_car, self.pos_noise_car, size=3)
             
-            # Add percentage-based noise to velocities
-            b_vel_scales = rng.uniform(1.0 - self.vel_noise_pct, 1.0 + self.vel_noise_pct, size=3)
-            c_vel_scales = rng.uniform(1.0 - self.vel_noise_pct, 1.0 + self.vel_noise_pct, size=3)
-            b_vel *= b_vel_scales
-            c_vel *= c_vel_scales
+            # Independent Velocity Noise
+            b_vel += rng.uniform(-self.vel_noise_ball, self.vel_noise_ball, size=3)
+            c_vel += rng.uniform(-self.vel_noise_car, self.vel_noise_car, size=3)
             
             # Add uniform noise to euler angles
             c_euler += rng.uniform(-self.euler_noise_rad, self.euler_noise_rad, size=3)
+
+            # Slide the entire setup along the Y-axis (wall parallel)
+            y_offset = rng.uniform(-self.y_slide_uu, self.y_slide_uu)
+            b_pos[1] += y_offset
+            c_pos[1] += y_offset
+
+            # 50% chance to mirror to the opposite wall (+X -> -X)
+            if rng.random() > 0.5:
+                # Invert X for positions and velocities
+                b_pos[0] *= -1.0
+                b_vel[0] *= -1.0
+                c_pos[0] *= -1.0
+                c_vel[0] *= -1.0
+                
+                # Invert Euler angles for X-mirroring (Pitch, Yaw, Roll)
+                # Yaw inverts to face the opposite direction symmetrically
+                # Roll inverts to maintain the ceiling/wall orientation
+                c_euler[1] *= -1.0
+                c_euler[2] *= -1.0
 
         # Set Ball state
         state.ball.position = b_pos

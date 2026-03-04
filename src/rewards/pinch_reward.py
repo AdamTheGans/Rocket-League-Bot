@@ -147,6 +147,74 @@ class GoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
         return diff / dist
 
 
+class ZFilteredGoalwardSpikeReward(RewardFunction[AgentID, GameState, float]):
+    """
+    Rewards positive increases in the ball's goalward velocity component, capped to
+    the absolute maximum speed registered in the episode to prevent repetitive acceleration farming.
+    
+    Additionally, applies a Z-velocity penalty multiplier:
+    - Target flat range: 300 to 550 uu/s (multiplier = 1.0)
+    - Linearly scales down the multiplier based on distance from that target range (max drop to 0.1).
+    """
+
+    def __init__(self, target_z_min: float = 300.0, target_z_max: float = 550.0, max_z_diff: float = 500.0):
+        super().__init__()
+        self._max_goalward: Dict[AgentID, float] = {}
+        self.target_z_min = target_z_min
+        self.target_z_max = target_z_max
+        self.max_z_diff = max_z_diff
+
+    def reset(
+        self,
+        agents: List[AgentID],
+        initial_state: GameState,
+        shared_info: Dict[str, Any],
+    ) -> None:
+        ball = initial_state.ball
+        for agent in agents:
+            car = initial_state.cars[agent]
+            goal_dir = GoalwardSpeedSpikeReward._goal_direction(ball.position, car.is_orange)
+            goalward = float(np.dot(ball.linear_velocity, goal_dir))
+            # Start tracking the max from the spawn state
+            self._max_goalward[agent] = max(0.0, goalward)
+
+    def get_rewards(
+        self,
+        agents: List[AgentID],
+        state: GameState,
+        is_terminated: Dict[AgentID, bool],
+        is_truncated: Dict[AgentID, bool],
+        shared_info: Dict[str, Any],
+    ) -> Dict[AgentID, float]:
+        rewards = {agent: 0.0 for agent in agents}
+        ball = state.ball
+        
+        for agent in agents:
+            car = state.cars[agent]
+            goal_dir = GoalwardSpeedSpikeReward._goal_direction(ball.position, car.is_orange)
+            curr_goalward = float(np.dot(ball.linear_velocity, goal_dir))
+
+            current_max = self._max_goalward.get(agent, 0.0)
+            delta = curr_goalward - current_max
+
+            if delta > 0:
+                # We reached a new top speed pointing at the net
+                self._max_goalward[agent] = curr_goalward
+                base_reward = delta / common_values.BALL_MAX_SPEED
+                
+                # Apply Z-Velocity Filter
+                ball_z_vel = ball.linear_velocity[2]
+                if self.target_z_min <= ball_z_vel <= self.target_z_max:
+                    multiplier = 1.0
+                else:
+                    z_diff = min(abs(ball_z_vel - self.target_z_min), abs(ball_z_vel - self.target_z_max))
+                    multiplier = max(0.1, 1.0 - (z_diff / self.max_z_diff))
+                    
+                rewards[agent] = base_reward * multiplier
+
+        return rewards
+
+
 class LatchGoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
     """
     Grants a massive one-time reward if the ball velocity exceeds a threshold
@@ -219,7 +287,37 @@ class LatchGoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
             if curr_goalward >= self.spike_threshold and absolute_goalward:
                 rewards[agent] = self.latch_reward
                 self._latched[agent] = True
-                
+        return rewards
+
+
+class TouchReward(RewardFunction[AgentID, GameState, float]):
+    """
+    Rewards the agent exactly once per episode for touching the ball.
+    Prevents exploitation where the agent dribbles or rubs against the ball.
+    """
+    def __init__(self):
+        super().__init__()
+        self._has_touched: Dict[AgentID, bool] = {}
+
+    def reset(self, agents: List[AgentID], initial_state: GameState, shared_info: Dict[str, Any]) -> None:
+        for agent in agents:
+            self._has_touched[agent] = False
+
+    def get_rewards(
+        self,
+        agents: List[AgentID],
+        state: GameState,
+        is_terminated: Dict[AgentID, bool],
+        is_truncated: Dict[AgentID, bool],
+        shared_info: Dict[str, Any],
+    ) -> Dict[AgentID, float]:
+        rewards = {agent: 0.0 for agent in agents}
+        for agent in agents:
+            if not self._has_touched.get(agent, False):
+                car = state.cars[agent]
+                if car.ball_touches > 0:
+                    rewards[agent] = 1.0
+                    self._has_touched[agent] = True
         return rewards
 
 
@@ -367,7 +465,7 @@ def build_golden_seed_reward() -> CombinedReward:
     """
     return LoggingCombinedReward(
         (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
-        (GoalwardSpeedSpikeReward(),           150.0),
+        (ZFilteredGoalwardSpikeReward(),       150.0),
         (TouchReward(),                          5.0),
-        (TimePenalty(),                         -0.05),
+        (TimePenalty(),                          0.0),
     )

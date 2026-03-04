@@ -17,9 +17,7 @@ from rlgym.rocket_league import common_values
 from rlgym_ppo.util import RLGymV2GymWrapper
 
 from rewards.pinch_reward import build_pinch_reward, build_golden_seed_reward
-from state_setters.pinch_spawn_setter import PinchSpawnMutator
 from state_setters.pinch_golden_seed_setter import PinchGoldenSeedSetter
-from envs.terminations import EarlyWhiffCondition
 
 
 def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
@@ -36,14 +34,11 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1):
         Training stage (1, 2, or 3). Controls spawn distribution and timeout.
     """
     spawn_mutator = PinchGoldenSeedSetter(randomize=True)
-    episode_seconds = 15.0
+    episode_seconds = 2.0
 
     action_parser = RepeatAction(LookupTableAction(), repeats=int(tick_skip))
 
-    termination_condition = AnyCondition(
-        GoalCondition(),
-        EarlyWhiffCondition(max_whiff_ticks=120, ground_z_threshold=100.0, min_speed_threshold=1500.0)
-    )
+    termination_condition = GoalCondition()
     truncation_condition = AnyCondition(
         TimeoutCondition(timeout_seconds=float(episode_seconds))
     )

@@ -47,7 +47,7 @@ class PinchLogger(MetricsLogger):
     ]
 
     TRACKED_REWARDS = [
-        "QuickGoal", "GoalwardSpeedSpike", "LatchGoalwardSpeedSpike",
+        "QuickGoal", "GoalwardSpeedSpike", "ZFilteredGoalwardSpike", "LatchGoalwardSpeedSpike",
         "BallVelocityToGoal", "BallWallProximity", "ApproachPinchPoint", "Touch", "TimePenalty"
     ]
 
