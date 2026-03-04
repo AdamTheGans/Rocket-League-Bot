@@ -224,7 +224,8 @@ Pinches are rare under random exploration. We make them learnable via:
 Spawn states ~10–20 frames before the pinch contact.
 Example (conceptual):
 - Ball: perfectly flush against side wall, high velocity towards opponent goal.
-- Car: aggressively pre-aligned on intercept trajectory, identical Z-velocity as the ball.
+- Car: aggressively pre-aligned on intercept trajectory, exact identical Z-coordinate to the ball's center to prevent sliding underneath.
+- **Physics Hack**: The car's geometry is forced deeply into the wall's bounding box (`x_offset` up to -120uu) at the moment of impact. Because RocketSim resolves discreet 120hz frame collisions via clipping, wedging the ball like this forces a massive 1200+ uu/s impulse pinch outwards into the field upon impact, which otherwise would not happen if the car just brushed the ball at high speed.
 - Variance: apply randomized `y_slide` offsets (+/- 1000uu) to both car and ball, and natively random X-axis mirroring to train equally on the left and right walls. This prevents static positional overfitting while keeping the micro-skill pure.
 
 ### Reward (anti-hacking)

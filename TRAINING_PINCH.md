@@ -45,7 +45,7 @@ The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step re
 
 **Goal:** Learn to execute the pinch contact itself -- ball is rolling up the side wall, car is positioned in an upright aerial trajectory directly intercepting the ball. Agent only needs to learn front/diagonal dodge timing for a goalward speed spike.
 
-**Spawn:** Ball rolling up the side wall (+/- X) with low forward momentum, car precisely mapped to intercept trajectory (-200x, -200y offset) facing the ball's center at a 45-degree angle. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. 2s episodes.
+**Spawn:** Ball rolling up the side wall (+/- X) with low forward momentum, car precisely mapped to intercept trajectory (-200x, -200y offset) facing the ball's center at a 45-degree angle. Spawn includes a random +/- 1000.0 uu sliding Y-variance, and a 50% chance to mirror across the X-axis to the left wall to prevent positional overfitting. The mathematical intercept strictly forces the car deep into the wall's geometric bounding box (X offset up to -120.0uu) and exactly aligns the center-of-mass Z-coordinate to the ball's center, explicitly forcing RocketSim's impulse collision engine to calculate a high-velocity pinch on the next discrete frame. A dedicated `generate_golden_seed.py` random grid search runs to refine these impact permutations alongside dodge angles. 2s episodes.
 
 ### Train
 

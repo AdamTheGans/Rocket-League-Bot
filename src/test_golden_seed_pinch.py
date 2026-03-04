@@ -52,28 +52,70 @@ def main():
         print(f"Simulating attempt {i+1}/{num_attempts} (Jump delay: {delay} ticks, Y-Offset: {y_slide:.1f})")
         
         # ── Setup Golden Seed ──
-        ball_state = arena.ball.get_state()
-        # Right wall spawn, applying the y_slide offset for variety
-        # 4096 is the wall, radius is ~91.25.
-        ball_state.pos = rsim.Vec(4004.75, -2391.86 + y_slide, 308.11)
-        ball_state.vel = rsim.Vec(1993.41, 150.0, 1424.75)  # SLOWER Y-VELOCITY FIX
-        arena.ball.set_state(ball_state)
+        # To get a realistic roll up the wall, we spawn the ball near the ground 
+        # rolling fast, wait for it to hit the wall, and buffer the physics states.
+        temp_state = arena.ball.get_state()
+        temp_state.pos = rsim.Vec(-3000.0, -2500.0 + y_slide, 93.15)
+        temp_state.vel = rsim.Vec(-1500.0, 150.0, 0.0)
+        arena.ball.set_state(temp_state)
+        
+        buffer_frames = int(0.15 * arena.tick_rate)
+        ball_history = []
+        ticks = 0
+        SIDE_WALL_X = -4096.0
+        BALL_RADIUS = 91.25
+        
+        while True:
+            arena.step(1)
+            ticks += 1
+            bs = arena.ball.get_state()
+            
+            sc = rsim.BallState()
+            sc.pos = rsim.Vec(bs.pos.x, bs.pos.y, bs.pos.z)
+            sc.vel = rsim.Vec(bs.vel.x, bs.vel.y, bs.vel.z)
+            sc.ang_vel = rsim.Vec(bs.ang_vel.x, bs.ang_vel.y, bs.ang_vel.z)
+            ball_history.append(sc)
+            
+            if len(ball_history) > buffer_frames + 1:
+                ball_history.pop(0)
+                
+            if bs.pos.z > 240.0 and bs.pos.x <= SIDE_WALL_X + BALL_RADIUS + 5.0:
+                break
+                
+        # Roll back to the state from T=0.15s ago
+        spawn_ball_state = ball_history[0] if len(ball_history) > buffer_frames else ball_history[-1]
+        impact_ball_state = ball_history[-1]
+        
+        arena.ball.set_state(spawn_ball_state)
         
         car_state = car.get_state()
-        # car_x = ball_x - 200
-        # car_y = ball_y - 200
-        # car_z = ball_z
-        car_state.pos = rsim.Vec(ball_state.pos.x - 200.0, ball_state.pos.y - 200.0, ball_state.pos.z)
         
-        # Intercept velocity (0.2s targeting)
-        # car_vel_x = ball_vel_x + 1000
-        # car_vel_y = ball_vel_y + 1000
-        car_state.vel = rsim.Vec(ball_state.vel.x + 1000.0, ball_state.vel.y + 1000.0, ball_state.vel.z)
+        # Kuxir Approach Setup
+        V = 2100.0
+        T = 0.15
         
-        # Orient using the Upright Aerial math fixed for Left/Right coordinate systems
-        # The ball is at +200 X, +200 Y relative to the Car.
-        # Yaw pointing towards ball is actually -pi/4 (-45deg) in Rocket League / Unreal coords.
-        pitch, yaw, roll = 0.0, -math.pi / 4.0, 0.0
+        yaw = math.pi - math.radians(20)
+        pitch = math.radians(10)
+        roll = -math.radians(95)
+        
+        car_vel_x = impact_ball_state.vel.x + V * math.cos(yaw)
+        car_vel_y = impact_ball_state.vel.y + V * math.sin(yaw)
+        car_vel_z = impact_ball_state.vel.z
+        
+        # Cap speed physically to let RocketSim simulate correctly if vector math overshoots limit
+        speed = math.sqrt(car_vel_x**2 + car_vel_y**2 + car_vel_z**2)
+        if speed > 2300.0:
+            scale = 2300.0 / speed
+            car_vel_x *= scale
+            car_vel_y *= scale
+            car_vel_z *= scale
+
+        impact_y = impact_ball_state.pos.y + 20.0
+        impact_z = impact_ball_state.pos.z + 65.0
+        
+        car_state.pos = rsim.Vec(impact_ball_state.pos.x - (car_vel_x * T), impact_y - (car_vel_y * T), impact_z - (car_vel_z * T))
+        car_state.vel = rsim.Vec(car_vel_x, car_vel_y, car_vel_z)
+        
         rot_array = euler_to_rotation(np.array([pitch, yaw, roll], dtype=np.float32))
         car_state.rot_mat = rsim.RotMat(*rot_array.flatten())
         
@@ -102,9 +144,9 @@ def main():
             controls.throttle = 1.0
             controls.boost = True
             
-            # Hardcoded dodge logic (Front-Right diagonal dodge)
-            # Since the car is already angled pi/4 towards the ball, 
-            # a simple front-right dodge will push the ball perfectly flush into the goal.
+            # Hardcoded dodge logic (Kuxir Pinch)
+            # Since the car is rolled ~95 degrees, a front flip will snap the nose towards
+            # the target goal, crushing the ball into the left wall.
             if tick == delay:
                 controls.jump = True
             elif tick > delay and tick < delay + 4:
@@ -114,13 +156,13 @@ def main():
             elif tick == delay + 5:
                 # Second jump (dodge)
                 controls.jump = True
-                controls.steer = 1.0  # Right
-                controls.pitch = -1.0 # Forward
-                controls.roll = 0.0   
+                controls.pitch = -1.0 # Front flip
+                controls.steer = 0.0
+                controls.roll = 0.0
             elif tick > delay + 5 and tick < delay + 10:
                 controls.jump = True
-                controls.steer = 1.0
                 controls.pitch = -1.0
+                controls.steer = 0.0
                 controls.roll = 0.0
             
             car.set_controls(controls)

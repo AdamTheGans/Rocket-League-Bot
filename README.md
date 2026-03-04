@@ -162,7 +162,7 @@ Rocket-League-Bot/
 │   │   ├── grounded_strike.py      # 1v0 strike environment setup
 │   │   ├── pinch.py                # 1v0 pinch environment setup
 │   │   └── resets/
-│   │       └── generate_golden_seed.py # Generates precise pinch setups and visualizes them using rlviser
+│   │       └── generate_golden_seed.py # Grid searches precise pinch setups (spatial, rotation, and dodge flips) and visualizes them using rlviser
 │   ├── rewards/
 │   │   ├── strike_reward.py        # Strike reward function
 │   │   └── pinch_reward.py         # Pinch reward function
