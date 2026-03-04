@@ -25,7 +25,7 @@ _STAGE: int = 1
 
 def env_factory():
     """Build the pinch env. Uses module-level _STAGE (pickle-safe)."""
-    return build_env(render=False, tick_skip=8, stage=_STAGE)
+    return build_env(render=False, tick_skip=4, stage=_STAGE)
 
 
 def parse_args():

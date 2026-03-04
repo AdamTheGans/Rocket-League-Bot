@@ -375,14 +375,15 @@ def _save_topdown_gif_labeled(
     X_MIN, X_MAX = -4200.0, 4200.0
     Y_MIN, Y_MAX = -5200.0, 5200.0
 
-    W, H = 720, 1080
-    PAD = 40
+    W, H = 860, 1080
+    PAD_X = 120
+    PAD_Y = 60
 
     def world_to_px(x: float, y: float) -> tuple[int, int]:
         u = (x - X_MIN) / (X_MAX - X_MIN)
         v = (y - Y_MIN) / (Y_MAX - Y_MIN)
-        px = int(PAD + u * (W - 2 * PAD))
-        py = int(PAD + (1.0 - v) * (H - 2 * PAD))
+        px = int(PAD_X + u * (W - 2 * PAD_X))
+        py = int(PAD_Y + (1.0 - v) * (H - 2 * PAD_Y))
         return px, py
 
     # Optional font (falls back if unavailable)
@@ -399,11 +400,11 @@ def _save_topdown_gif_labeled(
         draw = ImageDraw.Draw(img)
 
         # Field outline
-        draw.rectangle([PAD, PAD, W - PAD, H - PAD], outline=(190, 190, 190), width=2)
+        draw.rectangle([PAD_X, PAD_Y, W - PAD_X, H - PAD_Y], outline=(190, 190, 190), width=2)
 
         # Midline
         mid_y = world_to_px(0.0, 0.0)[1]
-        draw.line([PAD, mid_y, W - PAD, mid_y], fill=(90, 90, 90), width=2)
+        draw.line([PAD_X, mid_y, W - PAD_X, mid_y], fill=(90, 90, 90), width=2)
 
         # Goal boxes & labels
         # Orange goal at +Y, Blue goal at -Y
@@ -411,19 +412,19 @@ def _save_topdown_gif_labeled(
         bot_line = world_to_px(0.0, -5120.0)[1]
 
         # draw "goals" as thick bands
-        draw.rectangle([PAD, top_line - 8, W - PAD, top_line + 8], fill=(140, 90, 20))
-        draw.rectangle([PAD, bot_line - 8, W - PAD, bot_line + 8], fill=(30, 90, 140))
+        draw.rectangle([PAD_X, top_line - 8, W - PAD_X, top_line + 8], fill=(140, 90, 20))
+        draw.rectangle([PAD_X, bot_line - 8, W - PAD_X, bot_line + 8], fill=(30, 90, 140))
 
         if font_big:
-            draw.text((PAD + 8, PAD + 6), title, fill=(240, 240, 240), font=font_big)
+            draw.text((PAD_X + 8, PAD_Y - 40), title, fill=(240, 240, 240), font=font_big)
         else:
-            draw.text((PAD + 8, PAD + 6), title, fill=(240, 240, 240))
+            draw.text((PAD_X + 8, PAD_Y - 40), title, fill=(240, 240, 240))
 
         target_txt = "Target: ORANGE goal (+Y)" if attack_orange else "Target: BLUE goal (-Y)"
         if font:
-            draw.text((PAD + 8, PAD + 38), target_txt, fill=(220, 220, 220), font=font)
+            draw.text((PAD_X + 8, PAD_Y - 15), target_txt, fill=(220, 220, 220), font=font)
         else:
-            draw.text((PAD + 8, PAD + 38), target_txt, fill=(220, 220, 220))
+            draw.text((PAD_X + 8, PAD_Y - 15), target_txt, fill=(220, 220, 220))
 
         # Draw ball and car
         bx_px, by_px = world_to_px(bx, by)
@@ -434,12 +435,14 @@ def _save_topdown_gif_labeled(
         draw.ellipse([bx_px - r_ball, by_px - r_ball, bx_px + r_ball, by_px + r_ball], fill=(255, 170, 40))
         draw.ellipse([cx_px - r_car, cy_px - r_car, cx_px + r_car, cy_px + r_car], fill=(80, 170, 255))
 
-        # Labels with height
+        # Labels with height (offsetting to left if close to right edge)
         if font:
             ball_label = f"BALL  z={ball_z:.0f}" if ball_z is not None else "BALL"
             car_label = f"CAR  z={car_z:.0f}" if car_z is not None else "CAR"
-            draw.text((bx_px + 12, by_px - 10), ball_label, fill=(255, 210, 120), font=font)
-            draw.text((cx_px + 12, cy_px - 10), car_label, fill=(160, 210, 255), font=font)
+            bx_off = -100 if bx_px > W - PAD_X - 100 else 12
+            cx_off = -100 if cx_px > W - PAD_X - 100 else 12
+            draw.text((bx_px + bx_off, by_px - 10), ball_label, fill=(255, 210, 120), font=font)
+            draw.text((cx_px + cx_off, cy_px - 10), car_label, fill=(160, 210, 255), font=font)
 
         # Facing arrow
         if yaw is not None and np.isfinite(yaw):
@@ -460,7 +463,7 @@ def _save_topdown_gif_labeled(
             if b > 1.5:
                 b = b / 100.0
             b = max(0.0, min(1.0, b))
-            bar_x0, bar_y0 = PAD + 8, H - PAD + 8
+            bar_x0, bar_y0 = PAD_X + 8, H - PAD_Y + 16
             bar_w, bar_h = 240, 16
             draw.rectangle([bar_x0, bar_y0, bar_x0 + bar_w, bar_y0 + bar_h], outline=(220, 220, 220), width=2)
             draw.rectangle([bar_x0, bar_y0, bar_x0 + int(bar_w * b), bar_y0 + bar_h], fill=(100, 220, 120))
@@ -469,7 +472,7 @@ def _save_topdown_gif_labeled(
 
         # Timestamp-ish
         if font:
-            draw.text((W - PAD - 160, PAD + 38), f"frame {t}", fill=(210, 210, 210), font=font)
+            draw.text((W - PAD_X - 160, PAD_Y - 20), f"frame {t}", fill=(210, 210, 210), font=font)
 
         img_frames.append(img)
 

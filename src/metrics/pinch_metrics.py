@@ -47,12 +47,12 @@ class PinchLogger(MetricsLogger):
     ]
 
     TRACKED_REWARDS = [
-        "QuickGoal", "GoalwardSpeedSpike", "BallVelocityToGoal",
-        "BallWallProximity", "ApproachPinchPoint", "Touch", "TimePenalty"
+        "QuickGoal", "GoalwardSpeedSpike", "LatchGoalwardSpeedSpike",
+        "BallVelocityToGoal", "BallWallProximity", "ApproachPinchPoint", "Touch", "TimePenalty"
     ]
 
     def __init__(self, csv_path: str = "checkpoints/pinch_metrics.csv",
-                 tick_skip: int = 8, timeout_seconds: float = 2.0, stage: int = 1):
+                 tick_skip: int = 4, timeout_seconds: float = 2.0, stage: int = 1):
         super().__init__()
         self.csv_path = csv_path
         self.tick_skip = tick_skip

@@ -38,16 +38,24 @@ class PinchSpawnMutator:
     # ── Per-stage configs ──
     _CONFIGS = {
         1: dict(
-            ball_x_range=(3900.0, _FLUSH_X),      # nearly on wall
-            ball_y_range=(1000.0, 4500.0),         # offensive half
-            ball_z_range=(_BALL_REST_Z, 150.0),
-            ball_vel_max=100.0,
-            ball_wall_vel=(100.0, 300.0),          # slight velocity toward wall
-            car_dist_range=(150.0, 500.0),         # micro-skill: enough for 3-5 decisions
-            car_yaw_noise=0.15,                    # tightly pre-aligned
-            car_speed_range=(500.0, 1200.0),
+            # Golden Seed Output from generate_golden_seed.py (Left Wall, Own Half)
+            ball_pos=(-4004.75, -2391.80, 271.74),
+            ball_vel=(-610.74, 998.41, -73.66),
+            
+            car_pos=(-3964.75, -2441.80, 271.74),
+            car_vel=(-400.00, 1998.41, -73.66),
+            car_euler=(0.0, math.pi / 2.0, math.pi / 2.0),
+            
+            # Tiny noise for Micro-Skill
+            pos_noise=5.0,
+            vel_noise=10.0,
+            car_yaw_noise=0.02,
+            
+            # Sliding variance along the wall
+            y_slide_range=(-1000.0, 1000.0),
+            
             boost_range=(40.0, 100.0),
-            corner_prob=0.05,
+            corner_prob=0.0, # Not applicable for micro-seed
             timeout_seconds=2.0,
         ),
         2: dict(
@@ -89,8 +97,60 @@ class PinchSpawnMutator:
 
     def apply(self, state, shared_info=None):
         rng = np.random
-
         cfg = self.cfg
+
+        if self.stage == 1:
+            # Stage 1: Golden Seed Micro-Skill
+            y_slide = rng.uniform(*cfg.get("y_slide_range", (0.0, 0.0)))
+            
+            ball_pos = np.array(cfg["ball_pos"], dtype=np.float32)
+            ball_pos[:2] += rng.uniform(-cfg["pos_noise"], cfg["pos_noise"], size=2)
+            ball_pos[1] += y_slide # shared sliding
+            
+            ball_vel = np.array(cfg["ball_vel"], dtype=np.float32)
+            ball_vel += rng.uniform(-cfg["vel_noise"], cfg["vel_noise"], size=3)
+            
+            # Mirror to opposite wall randomly
+            flip_x = (rng.random() < 0.5)
+            if flip_x:
+                ball_pos[0] *= -1.0
+                ball_vel[0] *= -1.0
+            
+            state.ball.position = ball_pos
+            state.ball.linear_velocity = ball_vel
+            state.ball.angular_velocity = np.array(
+                [rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0), rng.uniform(-1.0, 1.0)],
+                dtype=np.float32
+            )
+            
+            for _cid, car in state.cars.items():
+                car_pos = np.array(cfg["car_pos"], dtype=np.float32)
+                car_pos[:2] += rng.uniform(-cfg["pos_noise"], cfg["pos_noise"], size=2)
+                car_pos[1] += y_slide # match sliding offset
+                
+                car_vel = np.array(cfg["car_vel"], dtype=np.float32)
+                car_vel += rng.uniform(-cfg["vel_noise"], cfg["vel_noise"], size=3)
+                
+                car_euler = list(cfg["car_euler"])
+                car_euler[1] += rng.uniform(-cfg["car_yaw_noise"], cfg["car_yaw_noise"])
+                
+                # Mirroring rolls and positions
+                if flip_x:
+                    car_pos[0] *= -1.0
+                    car_vel[0] *= -1.0
+                    car_euler[1] = math.pi - car_euler[1] # mirror yaw
+                    car_euler[2] *= -1.0 # mirror roll
+                    
+                car.physics.position = car_pos
+                car.physics.linear_velocity = car_vel
+                car.physics.euler_angles = np.array(car_euler, dtype=np.float32)
+                car.physics.angular_velocity = np.zeros(3, dtype=np.float32)
+                
+                car.boost_amount = float(rng.uniform(*cfg["boost_range"]))
+                car.hitbox_type = common_values.DOMINUS
+            
+            return
+
         is_corner = (rng.random() < cfg["corner_prob"])
 
         # ── Ball position ──

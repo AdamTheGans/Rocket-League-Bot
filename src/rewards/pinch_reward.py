@@ -147,6 +147,82 @@ class GoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
         return diff / dist
 
 
+class LatchGoalwardSpeedSpikeReward(RewardFunction[AgentID, GameState, float]):
+    """
+    Grants a massive one-time reward if the ball velocity exceeds a threshold
+    in the goalward direction, and the car has recently touched it.
+    """
+    def __init__(self, spike_threshold: float = 2500.0, latch_reward: float = 50.0):
+        super().__init__()
+        self.spike_threshold = spike_threshold
+        self.latch_reward = latch_reward
+        self._latched: Dict[AgentID, bool] = {}
+        self._last_touch_ticks: Dict[AgentID, int] = {}
+        
+    def reset(
+        self,
+        agents: List[AgentID],
+        initial_state: GameState,
+        shared_info: Dict[str, Any],
+    ) -> None:
+        for agent in agents:
+            self._latched[agent] = False
+            self._last_touch_ticks[agent] = -100
+
+    def get_rewards(
+        self,
+        agents: List[AgentID],
+        state: GameState,
+        is_terminated: Dict[AgentID, bool],
+        is_truncated: Dict[AgentID, bool],
+        shared_info: Dict[str, Any],
+    ) -> Dict[AgentID, float]:
+        rewards = {agent: 0.0 for agent in agents}
+        ball = state.ball
+        
+        # In RocketSim/RLGym v2, game_state usually has a tick_count mapped to `state.tick_count`
+        # But if it's not present, we can just increment a counter per step.
+        current_tick = getattr(state, 'tick_count', 0)
+        
+        for agent in agents:
+            if self._latched.get(agent, False):
+                continue
+                
+            car = state.cars[agent]
+            
+            # Update last touch tick
+            if car.ball_touches > 0:
+                self._last_touch_ticks[agent] = current_tick
+                
+            # Check if touch occurred within the last 2 ticks
+            ticks_since_touch = current_tick - self._last_touch_ticks.get(agent, -100)
+            touched_recently = (0 <= ticks_since_touch <= 2)
+            
+            if not touched_recently:
+                continue
+                
+            goal_y = -common_values.BACK_NET_Y if car.is_orange else common_values.BACK_NET_Y
+            goal_pos = np.array([0.0, goal_y, 0.0], dtype=np.float32)
+            diff = goal_pos - ball.position
+            dist = np.linalg.norm(diff)
+            
+            if dist > 1e-6:
+                goal_dir = diff / dist
+            else:
+                goal_dir = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+                
+            curr_goalward = float(np.dot(ball.linear_velocity, goal_dir))
+            
+            # Additional validation: make sure it's actually moving in the absolute Y direction of the goal
+            absolute_goalward = ball.linear_velocity[1] < 0 if car.is_orange else ball.linear_velocity[1] > 0
+            
+            if curr_goalward >= self.spike_threshold and absolute_goalward:
+                rewards[agent] = self.latch_reward
+                self._latched[agent] = True
+                
+        return rewards
+
+
 class BallWallProximityReward(RewardFunction[AgentID, GameState, float]):
     """
     Reward ball being close to a side wall (where pinches happen).
@@ -248,8 +324,8 @@ def build_pinch_reward(stage: int = 1) -> CombinedReward:
     """
     if stage == 1:
         return LoggingCombinedReward(
-            (GoalwardSpeedSpikeReward(),            15.0),
-            (BallWallProximityReward(),              0.05),
+            (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
+            (LatchGoalwardSpeedSpikeReward(spike_threshold=2500.0, latch_reward=50.0), 1.0),
             (ApproachPinchPointReward(),             0.05),
             (TouchReward(),                          0.1),
             (TimePenalty(),                         -0.03),

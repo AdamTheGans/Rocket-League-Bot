@@ -3,7 +3,9 @@
 ## What This Is
 
 A Rocket League bot trained with reinforcement learning (PPO) using RLGym v2 + RocketSim.
-Currently training the "Grounded Strike" specialist — a 1v0 agent that learns to score from near-ground spawns.
+Currently training two specialists:
+- **Grounded Strike**: A 1v0 agent that learns to score from near-ground spawns.
+- **Pinch Specialist**: A 1v0 agent that masters the side wall Kuxir pinch through 3 automated curriculum stages.
 
 ---
 
@@ -54,6 +56,7 @@ pip install torch
 
 ```bash
 pip install rlgym[rl-sim,rl-rlviser]
+pip install rlviser-py
 pip install git+https://github.com/AechPro/rlgym-ppo
 ```
 
@@ -156,17 +159,24 @@ and height (z-coordinate) for both car and ball.
 Rocket-League-Bot/
 ├── src/
 │   ├── envs/
-│   │   └── grounded_strike.py      # 1v0 environment setup
+│   │   ├── grounded_strike.py      # 1v0 strike environment setup
+│   │   └── pinch.py                # 1v0 pinch environment setup
 │   ├── rewards/
-│   │   └── strike_reward.py        # Reward function
+│   │   ├── strike_reward.py        # Strike reward function
+│   │   └── pinch_reward.py         # Pinch reward function
 │   ├── state_setters/
-│   │   └── low_spawn_setter.py     # Spawn positions/rotations
+│   │   ├── low_spawn_setter.py     # Strike spawn positions
+│   │   └── pinch_spawn_setter.py   # Pinch spawn positions / offset geometry
 │   ├── metrics/
-│   │   └── strike_metrics.py       # Custom training metrics
+│   │   ├── strike_metrics.py       # Custom strike metrics
+│   │   └── pinch_metrics.py        # Custom pinch metrics with auto-progression
 │   ├── train_specialist_1.py       # Training config (laptop/CPU)
 │   ├── train_specialist_1_gpu.py   # Training config (GPU machine)
-│   ├── eval_specialist_1.py        # Evaluation + GIF generation
-│   └── verify_env.py               # Quick sanity test
+│   ├── eval_specialist_1.py        # Strike Evaluation + GIF generation
+│   ├── train_pinch.py              # Pinch training config (supports --stage auto-progression)
+│   ├── eval_pinch.py               # Pinch Evaluation + GIF generation
+│   ├── verify_env.py               # Quick strike sanity test
+│   └── verify_pinch_env.py         # Quick pinch sanity test
 ├── checkpoints/                    # Saved model checkpoints
 ├── requirements.txt
 ├── PLAN.md                         # Full project roadmap

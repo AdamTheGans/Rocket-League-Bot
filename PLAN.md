@@ -214,6 +214,7 @@ Pinches are rare under random exploration. We make them learnable via:
 - Fix car hitbox for all future training (recommended: Plank/Paladin if pinch-focused).
 - Use RocketSim via RLGym for speed.
 - Use rlgym-ppo (same pipeline as Grounded Strike).
+- Network Architecture scaled up to `[1024, 1024, 512, 512]` to handle advanced pinch setups natively.
 - Action space: keep the same lookup-table/discrete actions + action repeat as before.
 
 ---
@@ -243,6 +244,7 @@ Let g be unit vector toward opponent goal.
 - % episodes with a speed spike above threshold AND goalward
 - median goalward speed after contact
 - % actual goals within T
+- Automated stage progression continuously monitors 10-iteration rolling averages, using `BaseException` to safely exit the run loop and automatically continue into the next stage when metrics hit mastery thresholds.
 
 ---
 

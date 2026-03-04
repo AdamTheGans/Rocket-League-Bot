@@ -16,6 +16,31 @@ python src/verify_pinch_env.py
 
 ---
 
+## Automated Stage Progression & Metrics
+
+The `train_pinch.py` script employs an automated curriculum system. It evaluates a 10-iteration rolling average of performance metrics mapping goal rates and specifically thresholded speed spikes (e.g., % of 50kph/75kph hits computed per-environment step to prevent false positives).
+- When thresholds are met, the script raises a `StageCompleteException` (inheriting from `BaseException` to bypass standard PPO crash handlers) which cleanly exits training, saves a checkpoint, and instantaneously instantiates the next stage's `Learner`.
+- The logger also includes a precise `AVERAGE REWARDS (PER STEP)` display in the iteration report, generated using a global `GLOBAL_REWARD_BREAKDOWN` dictionary bypassing serialization constraints.
+
+---
+
+## Reward Computation & Breakdown (Per-Step)
+
+The `GLOBAL_REWARD_BREAKDOWN` dictionary is used to extract the raw, per-step reward component values natively from the isolated Rocket League environments. It averages out the component metrics per step, taking the mathematical delta *per-environment* to precisely quantify goalward speed spikes without artificial variance. 
+
+### Stage Weightings:
+| Component | Stage 1 | Stage 2 | Stage 3 | Description |
+|---|---|---|---|---|
+| **QuickGoal** | *Disabled* | `100.0` | `100.0` | Sparse reward for actually scoring. Base: 1.0, Bonus: +0.5. |
+| **GoalwardSpeedSpike** | `15.0` | `150.0` | `3.0` | Dense reward for positive *increases* (delta) in goalward ball velocity. |
+| **BallVelocityToGoal** | *Disabled* | `0.4` | `0.5` | Dense shaping for keeping the ball moving toward the goal continuously. |
+| **ApproachPinchPoint** | `0.05` | `0.2` | `0.3` | Shaping to guide the car exactly to the projected contact point on the wall. |
+| **BallWallProximity** | `0.05` | `0.1` | `0.1` | Shaping to keep ball near the wall (prevents runaway play). |
+| **Touch** | `0.1` | `0.05` | `0.05` | Flat reward for touching the ball. Heavily down-scaled to prevent dribbling exploits. |
+| **TimePenalty** | `-0.03` | `-0.04` | `-0.05` | Constant negative step penalty to encourage immediate execution. |
+
+---
+
 ## Stage 1: Micro-Skill (Near-Contact Pinch)
 
 **Goal:** Learn to execute the pinch contact itself -- ball is flush on the wall, car is 50-250 uu away and pre-aligned. Agent only needs to learn flip/boost timing for a goalward speed spike.
@@ -44,11 +69,11 @@ python src\train_pinch.py --stage 1 --n-proc 8 --seed 42
 | Avg goalward speed | Negative or near 0 | Positive and growing |
 | Avg ball-wall dist | Increasing (running away) | Staying low (~100-200 uu) |
 
-### When to Move On
+### When to Move On (Automated)
 
-- **Goal rate > 15%** on eval
-- **Median max goalward spike > 2000 uu/s** in metrics
-- **~20-50M steps** typical (a few hours on GPU)
+The script will automatically transition to Stage 2 when the 10-iteration rolling average meets:
+- **50kph Spikes > 50.0%**
+- **75kph Spikes > 15.0%**
 
 ### Evaluate
 
@@ -85,11 +110,14 @@ python src\train_pinch.py --stage 2 --gpu --resume-from checkpoints\pinch_stage1
 - Agent should learn to drive toward the pinch point within ~10M steps.
 - Watch for "just ramming the ball without wall contact" -- if avg wall distance stays high, the ball proximity shaping may need tuning.
 
-### When to Move On
+### When to Move On (Automated)
 
-- **Goal rate > 10%** on eval
-- Agent consistently approaches wall before contact (visible in GIF)
-- **~30-80M steps**
+The script will automatically transition to Stage 3 when the 10-iteration rolling average meets:
+- **50kph Spikes > 95.0%**
+- **75kph Spikes > 75.0%**
+- **100kph Spikes > 50.0%**
+- **125kph Spikes > 25.0%**
+- **Goal rate > 50.0%**
 
 ---
 
@@ -117,9 +145,7 @@ python src\train_pinch.py --stage 3 --gpu --resume-from checkpoints\pinch_stage2
 
 ### When to Move On
 
-- **Goal rate > 5%** on eval with Stage 3 resets
-- Agent can score from various angles and positions
-- **~50-100M+ steps** (this stage requires the most training)
+Stage 3 natively runs indefinitely as it represents live-ish "mastery". The training loop will gracefully hit the timestep limit (200M+) unless manually stopped.
 
 ---
 
@@ -147,7 +173,7 @@ checkpoints/
 
 To continue training on a different machine, copy the entire stage folder.
 
-> **IMPORTANT:** All stages use the same network architecture (`[512, 256, 256]`) so checkpoints are compatible when resuming from a previous stage.
+> **IMPORTANT:** All stages use the same scaled-up network architecture (`[1024, 1024, 512, 512]`) so checkpoints are compatible when resuming from a previous stage seamlessly.
 
 ---
 
