@@ -117,14 +117,15 @@ class PinchGoldenSeedSetter:
             self.y_slide_uu = 1200.0      # Max distance to slide up/down the wall
 
         elif self.stage == 3:
-            # Stage 3: Live-ish Pinch-Ready States
-            self.pos_noise_car = np.array([2000.0, 2000.0, 500.0], dtype=np.float32)
+            # Stage 3: The Ground-to-Wall Approach
+            # Car will be fully custom randomized in apply(), so set its noise vectors to 0
+            self.pos_noise_car = np.array([0.0, 0.0, 0.0], dtype=np.float32)
             self.pos_noise_ball = np.array([0.0, 50.0, 50.0], dtype=np.float32)
         
-            self.vel_noise_car = np.array([400.0, 400.0, 400.0], dtype=np.float32)
+            self.vel_noise_car = np.array([0.0, 0.0, 0.0], dtype=np.float32)
             self.vel_noise_ball = np.array([0.0, 100.0, 250.0], dtype=np.float32)
 
-            self.euler_noise_rad = 3.14159    # Full random rotations
+            self.euler_noise_rad = 0.0
             self.y_slide_uu = 2500.0          # Max distance to slide up/down the wall (into corners)
 
     def apply(self, state, shared_info=None):
@@ -171,6 +172,37 @@ class PinchGoldenSeedSetter:
                 # Align the trajectory's Y-coordinate to our baseline Y-coordinate
                 y_shift = self.ball_pos[1] - self.golden_traj_y
                 b_pos[1] += y_shift
+                
+            elif self.stage == 3:
+                # Stage 3 Custom Floor Spawn Logic
+                # X: Spawn car between 1500.0 and 3500.0 units away from the wall
+                # self.ball_pos[0] is negative for the Left Wall (-3982.31).
+                # Adding positive numbers moves it correctly toward the center.
+                c_pos[0] = self.ball_pos[0] + rng.uniform(1500.0, 3500.0)
+                
+                # Y: Randomize relative to the ball so that y_offset moves them together
+                dy = rng.uniform(-1500.0, 1500.0)
+                c_pos[1] = self.ball_pos[1] + dy
+                
+                # Z: Floor
+                c_pos[2] = 17.01
+                
+                # Yaw: Point roughly towards the ball (with noise)
+                dx = self.ball_pos[0] - c_pos[0]
+                # Target is ball, from car -> atan2(y2 - y1, x2 - x1)
+                # target_y_rel = ball_pos_y - car_pos_y = ball_pos_y - (ball_pos_y + dy) = -dy
+                target_yaw = math.atan2(-dy, dx)
+                c_euler[1] = target_yaw + rng.uniform(-math.pi/4, math.pi/4)
+                
+                # Pitch and Roll
+                c_euler[0] = 0.0
+                c_euler[2] = 0.0
+                
+                # Velocity & Speed
+                speed = rng.uniform(0.0, 1500.0)
+                c_vel[0] = speed * math.cos(c_euler[1])
+                c_vel[1] = speed * math.sin(c_euler[1])
+                c_vel[2] = 0.0
             
             # Independent Position Noise
             b_pos += rng.uniform(-self.pos_noise_ball, self.pos_noise_ball, size=3)
@@ -193,6 +225,10 @@ class PinchGoldenSeedSetter:
             y_offset = rng.uniform(-self.y_slide_uu, self.y_slide_uu)
             b_pos[1] += y_offset
             c_pos[1] += y_offset
+            
+            # Prevent going out of bounds (Y limits roughly +/- 5120)
+            b_pos[1] = np.clip(b_pos[1], -4900.0, 4900.0)
+            c_pos[1] = np.clip(c_pos[1], -4900.0, 4900.0)
 
             # 50% chance to mirror to the opposite wall (+X -> -X)
             if rng.random() > 0.5:
@@ -232,14 +268,21 @@ class PinchGoldenSeedSetter:
             car.physics.euler_angles = c_euler
             
             # The Flip Timer Fix (Critical Mechanic)
-            # This mid-air state mimics falling from the ceiling to grant infinite dodge.
-            car.has_jumped = False
-            car.has_double_jumped = False
-            car.has_flipped = False
-            car.on_ground = False
-            # car.has_flip = True
-            # car.can_flip = True
-            car.air_time_since_jump = 0.0
+            if self.stage == 3:
+                # Stage 3 starts on the floor normally
+                car.on_ground = True
+                car.has_jumped = False
+                car.has_double_jumped = False
+                car.has_flipped = False
+            else:
+                # This mid-air state mimics falling from the ceiling to grant infinite dodge.
+                car.has_jumped = False
+                car.has_double_jumped = False
+                car.has_flipped = False
+                car.on_ground = False
+                # car.has_flip = True
+                # car.can_flip = True
+                car.air_time_since_jump = 0.0
             
             # Boost
             car.boost_amount = 100.0
