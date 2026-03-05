@@ -116,16 +116,16 @@ class PinchGoldenSeedSetter:
 
         elif self.stage == 2:
             # Stage 2: The Approach
-            self.pos_noise_car = np.array([100.0, 100.0, 100.0], dtype=np.float32)
+            self.pos_noise_car = np.array([50.0, 50.0, 50.0], dtype=np.float32)
             # Avoid randomizing ball XYZ deeply to prevent physics clipping since it stays on the wall
-            self.pos_noise_ball = np.array([0.0, 35.0, 35.0], dtype=np.float32)
+            self.pos_noise_ball = np.array([0.0, 25.0, 25.0], dtype=np.float32)
         
-            self.vel_noise_car = np.array([200.0, 200.0, 200.0], dtype=np.float32)
+            self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
             # Avoid randomizing ball X velocity (keep it glued to the wall)
-            self.vel_noise_ball = np.array([0.0, 75.0, 225.0], dtype=np.float32)
+            self.vel_noise_ball = np.array([0.0, 40.0, 70.0], dtype=np.float32)
 
-            self.euler_noise_rad = 0.5    # +/- 0.5 radians (~28 degrees) for pitch, yaw, roll
-            self.y_slide_uu = 1200.0      # Max distance to slide up/down the wall
+            self.euler_noise_rad = 0.15    # +/- 0.5 radians (~28 degrees) for pitch, yaw, roll
+            self.y_slide_uu = 700.0      # Max distance to slide up/down the wall
 
         elif self.stage == 3:
             # Stage 3: The Ground-to-Wall Approach
@@ -164,13 +164,14 @@ class PinchGoldenSeedSetter:
             # Dynamic Rewind for Stage 2
             elif self.stage == 2:
                 # Randomize flight time between 0.3 seconds and 0.6 seconds
-                time_to_impact = rng.uniform(0.3, 0.6)
+                time_to_impact = rng.uniform(0.3, 0.5)
                 # The baseline car pos is already 0.15s away from the impact point.
                 additional_rewind = time_to_impact - 0.15
                 
                 # Spawn the car closer and higher to counteract gravity and acceleration delay
                 car_rewind = additional_rewind * 0.8
                 c_pos -= c_vel * car_rewind
+                c_vel[2] *= 0.8
                 c_pos[2] += 325.0 * (car_rewind ** 2)
                 
                 # Rewind ball using pre-calculated trajectory
@@ -178,7 +179,7 @@ class PinchGoldenSeedSetter:
                 # However, the user noted the car consistently misses the ball (arrives too late).
                 # To compensate, we rewind the ball *further* back in its timeline (e.g. 1.5x)
                 # so it takes longer to climb the wall, giving the car a larger buffer.
-                ball_rewind_factor = 1.35
+                ball_rewind_factor = 1
                 rewind_ticks = int(additional_rewind * ball_rewind_factor * 120)
                 target_tick = max(0, self.golden_tick - rewind_ticks)
                 
@@ -238,7 +239,7 @@ class PinchGoldenSeedSetter:
             # This forces the bot to learn how to intentionally roll its car to align with the wall
             if self.stage == 2 and rng.random() < 0.30:
                 # Override the roll component (index 2) to ~0.0 radians
-                c_euler[2] = rng.uniform(-0.1, 0.1)
+                c_euler[2] = rng.uniform(-0.3, 0.3)
 
             # Slide the entire setup along the Y-axis (wall parallel)
             y_offset = rng.uniform(-self.y_slide_uu, self.y_slide_uu)
