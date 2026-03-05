@@ -126,7 +126,7 @@ def visualize_pinch(checkpoints_root: str, stage: int = 1, difficulty: int = 1):
             except:
                 car_data = []
             vis.render(0, 120, rsim.GameMode.SOCCAR, pad_states, b_state, car_data)
-            
+            # Sleep dynamically to correct for python execution overhead
             target_time = start_time + (i / 120.0)
             now = time.time()
             if target_time > now:
@@ -203,6 +203,8 @@ def visualize_pinch(checkpoints_root: str, stage: int = 1, difficulty: int = 1):
         steps = 0
         if stage == 1:
             max_duration_seconds = float(difficulty + 1.0)
+        elif stage == 2:
+            max_duration_seconds = 4.0
         else:
             max_duration_seconds = 7.0
         max_steps = int(max_duration_seconds * 120 / 8)

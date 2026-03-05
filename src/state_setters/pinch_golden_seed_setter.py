@@ -21,8 +21,9 @@ class PinchGoldenSeedSetter:
     policy overfitting. Adds the Critical Flip Timer fix to grant an infinite dodge timer.
     """
 
-    def __init__(self, randomize: bool = True, difficulty_level: int = 1):
+    def __init__(self, randomize: bool = True, stage: int = 1, difficulty_level: int = 1):
         self.randomize = randomize
+        self.stage = stage
         
         # --- The Baseline State (The Golden Seed) ---
         # Discovered values for the Left Wall (Targeting Orange Goal +Y)
@@ -33,45 +34,87 @@ class PinchGoldenSeedSetter:
         self.car_vel = np.array([-2100.00, 500.00, 25.00], dtype=np.float32)
         self.car_euler = np.array([0.52, 2.99, 1.86], dtype=np.float32) # Inverted Pitch to point nose UP instead of down
         
+        # Pre-calculate ball trajectory to allow dynamic rewinding along the wall geometry
+        import RocketSim as rsim
+        from rlgym.rocket_league.sim import RocketSimEngine
+        
+        # Instantiate RocketSimEngine which safely initializes the rsim collision meshes globally
+        temp_engine = RocketSimEngine()
+        temp_arena = temp_engine._arena
+        b_state = temp_arena.ball.get_state()
+        b_state.pos = rsim.Vec(-3913.5, -2500.0, 93.15)
+        b_state.vel = rsim.Vec(-1500.0, 150.0, 0.0)
+        temp_arena.ball.set_state(b_state)
+        
+        self.ball_traj_pos = []
+        self.ball_traj_vel = []
+        
+        for _ in range(300):
+            temp_arena.step(1)
+            bs = temp_arena.ball.get_state()
+            self.ball_traj_pos.append(np.array([bs.pos.x, bs.pos.y, bs.pos.z], dtype=np.float32))
+            self.ball_traj_vel.append(np.array([bs.vel.x, bs.vel.y, bs.vel.z], dtype=np.float32))
+
+        # Find the tick where Z is closest to self.ball_pos[2]
+        z_diffs = [abs(p[2] - self.ball_pos[2]) for p in self.ball_traj_pos]
+        self.golden_tick = int(np.argmin(z_diffs))
+        
+        # Calculate the Y offset between the simulated trajectory and our baseline ball_pos
+        self.golden_traj_y = self.ball_traj_pos[self.golden_tick][1]
+        
         # --- Domain Randomization Bounds ---
-        if difficulty_level == 1:
-            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
-            self.pos_noise_car = np.array([15.0, 15.0, 15.0], dtype=np.float32)
-            # Avoid randomizing ball X position (it's already resting on the wall)
-            self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
-        
-            self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
-            # Avoid randomizing ball X velocity (keep it glued to the wall)
-            self.vel_noise_ball = np.array([0.0, 25.0, 75.0], dtype=np.float32)
+        if self.stage == 1:
+            if difficulty_level == 1:
+                # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+                self.pos_noise_car = np.array([15.0, 15.0, 15.0], dtype=np.float32)
+                # Avoid randomizing ball X position (it's already resting on the wall)
+                self.pos_noise_ball = np.array([0.0, 15.0, 15.0], dtype=np.float32)
+            
+                self.vel_noise_car = np.array([100.0, 100.0, 50.0], dtype=np.float32)
+                # Avoid randomizing ball X velocity (keep it glued to the wall)
+                self.vel_noise_ball = np.array([0.0, 25.0, 75.0], dtype=np.float32)
 
-            self.euler_noise_rad = 0.1    # +/- 10 degrees for pitch, yaw, roll
-            self.y_slide_uu = 500.0       # Max distance to slide up/down the wall
+                self.euler_noise_rad = 0.1    # +/- 10 degrees for pitch, yaw, roll
+                self.y_slide_uu = 500.0       # Max distance to slide up/down the wall
 
-        elif difficulty_level == 2:
-            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
-            self.pos_noise_car = np.array([25.0, 25.0, 25.0], dtype=np.float32)
-            # Avoid randomizing ball X position (it's already resting on the wall)
-            self.pos_noise_ball = np.array([0.0, 25.0, 25.0], dtype=np.float32)
-        
-            self.vel_noise_car = np.array([200.0, 200.0, 100.0], dtype=np.float32)
-            # Avoid randomizing ball X velocity (keep it glued to the wall)
-            self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
+            elif difficulty_level == 2:
+                # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+                self.pos_noise_car = np.array([25.0, 25.0, 25.0], dtype=np.float32)
+                # Avoid randomizing ball X position (it's already resting on the wall)
+                self.pos_noise_ball = np.array([0.0, 25.0, 25.0], dtype=np.float32)
+            
+                self.vel_noise_car = np.array([200.0, 200.0, 100.0], dtype=np.float32)
+                # Avoid randomizing ball X velocity (keep it glued to the wall)
+                self.vel_noise_ball = np.array([0.0, 50.0, 150.0], dtype=np.float32)
 
-            self.euler_noise_rad = 0.2    # +/- 20 degrees for pitch, yaw, roll
-            self.y_slide_uu = 1000.0       # Max distance to slide up/down the wall
-        
-        elif difficulty_level == 3:
-            # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
-            self.pos_noise_car = np.array([35.0, 35.0, 35.0], dtype=np.float32)
-            # Avoid randomizing ball X position (it's already resting on the wall)
+                self.euler_noise_rad = 0.2    # +/- 20 degrees for pitch, yaw, roll
+                self.y_slide_uu = 800.0       # Max distance to slide up/down the wall
+            
+            elif difficulty_level == 3:
+                # Provide independent XYZ noise vectors to prevent physics clipping and grant more variety
+                self.pos_noise_car = np.array([35.0, 35.0, 35.0], dtype=np.float32)
+                # Avoid randomizing ball X position (it's already resting on the wall)
+                self.pos_noise_ball = np.array([0.0, 35.0, 35.0], dtype=np.float32)
+            
+                self.vel_noise_car = np.array([250.0, 250.0, 150.0], dtype=np.float32)
+                # Avoid randomizing ball X velocity (keep it glued to the wall)
+                self.vel_noise_ball = np.array([0.0, 75.0, 225.0], dtype=np.float32)
+
+                self.euler_noise_rad = 0.35    # +/- 35 degrees for pitch, yaw, roll
+                self.y_slide_uu = 1200.0       # Max distance to slide up/down the wall
+
+        elif self.stage == 2:
+            # Stage 2: The Approach
+            self.pos_noise_car = np.array([100.0, 100.0, 100.0], dtype=np.float32)
+            # Avoid randomizing ball XYZ deeply to prevent physics clipping since it stays on the wall
             self.pos_noise_ball = np.array([0.0, 35.0, 35.0], dtype=np.float32)
         
-            self.vel_noise_car = np.array([250.0, 250.0, 150.0], dtype=np.float32)
+            self.vel_noise_car = np.array([200.0, 200.0, 200.0], dtype=np.float32)
             # Avoid randomizing ball X velocity (keep it glued to the wall)
             self.vel_noise_ball = np.array([0.0, 75.0, 225.0], dtype=np.float32)
 
-            self.euler_noise_rad = 0.35    # +/- 35 degrees for pitch, yaw, roll
-            self.y_slide_uu = 1500.0       # Max distance to slide up/down the wall
+            self.euler_noise_rad = 0.5    # +/- 0.5 radians (~28 degrees) for pitch, yaw, roll
+            self.y_slide_uu = 1200.0      # Max distance to slide up/down the wall
 
     def apply(self, state, shared_info=None):
         """
@@ -89,6 +132,35 @@ class PinchGoldenSeedSetter:
 
         # Apply Domain Randomization curriculum if requested
         if self.randomize:
+            
+            # Dynamic Rewind for Stage 2
+            if self.stage == 2:
+                # Randomize flight time between 0.3 seconds and 0.6 seconds
+                time_to_impact = rng.uniform(0.3, 0.6)
+                # The baseline car pos is already 0.15s away from the impact point.
+                additional_rewind = time_to_impact - 0.15
+                
+                # Spawn the car closer and higher to counteract gravity and acceleration delay
+                car_rewind = additional_rewind * 0.8
+                c_pos -= c_vel * car_rewind
+                c_pos[2] += 325.0 * (car_rewind ** 2)
+                
+                # Rewind ball using pre-calculated trajectory
+                # We need to go back by additional_rewind seconds.
+                # However, the user noted the car consistently misses the ball (arrives too late).
+                # To compensate, we rewind the ball *further* back in its timeline (e.g. 1.5x)
+                # so it takes longer to climb the wall, giving the car a larger buffer.
+                ball_rewind_factor = 1.35
+                rewind_ticks = int(additional_rewind * ball_rewind_factor * 120)
+                target_tick = max(0, self.golden_tick - rewind_ticks)
+                
+                b_pos = self.ball_traj_pos[target_tick].copy()
+                b_vel = self.ball_traj_vel[target_tick].copy()
+                
+                # Align the trajectory's Y-coordinate to our baseline Y-coordinate
+                y_shift = self.ball_pos[1] - self.golden_traj_y
+                b_pos[1] += y_shift
+            
             # Independent Position Noise
             b_pos += rng.uniform(-self.pos_noise_ball, self.pos_noise_ball, size=3)
             c_pos += rng.uniform(-self.pos_noise_car, self.pos_noise_car, size=3)

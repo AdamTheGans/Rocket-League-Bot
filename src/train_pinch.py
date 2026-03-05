@@ -182,8 +182,10 @@ def main():
 
         if stage == 1:
             ep_secs = float(_DIFFICULTY + 1.0)
+        elif stage == 2:
+            ep_secs = 4.0
         else:
-            ep_secs = 2.0
+            ep_secs = 6.0
 
         learner = Learner(
             env_create_function=env_factory,
