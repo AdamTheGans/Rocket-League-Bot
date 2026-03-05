@@ -56,9 +56,16 @@ def main():
         sim_seconds = 5.0
         start_time = time.time()
         for tick in range(int(sim_seconds * 120)):
+            time_elapsed = tick / 120.0
+            
             controls = rsim.CarControls()
-            controls.boost = True
             controls.throttle = 1.0
+            
+            # Wait 0.35 seconds before boosting
+            controls.boost = time_elapsed >= 0.25
+            
+            # Jump between 0.4 and 0.5 seconds
+            controls.jump = 0.5 <= time_elapsed <= 0.6
             
             for car in arena.get_cars():
                 car.set_controls(controls)

@@ -39,8 +39,8 @@ def parse_args():
         description="Train the pinch specialist (backward-chaining stages 1-3)."
     )
     parser.add_argument(
-        "--stage", type=int, required=True, choices=[1, 2, 3],
-        help="Training stage: 1=micro-skill, 2=approach, 3=live-ish",
+        "--stage", type=float, required=True, choices=[1.0, 1.5, 2.0, 3.0],
+        help="Training stage: 1=micro-skill, 1.5=bridge, 2=approach, 3=live-ish",
     )
     parser.add_argument(
         "--difficulty", type=int, default=1, choices=[1, 2, 3],

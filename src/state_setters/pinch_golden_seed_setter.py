@@ -129,15 +129,13 @@ class PinchGoldenSeedSetter:
 
         elif self.stage == 3:
             # Stage 3: The Ground-to-Wall Approach
-            # Car will be fully custom randomized in apply(), so set its noise vectors to 0
+            # Both car and ball are custom randomized in apply(), so zero all noises here
             self.pos_noise_car = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-            self.pos_noise_ball = np.array([0.0, 50.0, 50.0], dtype=np.float32)
-        
+            self.pos_noise_ball = np.array([0.0, 0.0, 0.0], dtype=np.float32)
             self.vel_noise_car = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-            self.vel_noise_ball = np.array([0.0, 100.0, 250.0], dtype=np.float32)
-
+            self.vel_noise_ball = np.array([0.0, 0.0, 0.0], dtype=np.float32)
             self.euler_noise_rad = 0.0
-            self.y_slide_uu = 2500.0          # Max distance to slide up/down the wall (into corners)
+            self.y_slide_uu = 800.0          # Max distance to slide up/down the wall
 
     def apply(self, state, shared_info=None):
         """
@@ -193,31 +191,34 @@ class PinchGoldenSeedSetter:
                 
             elif self.stage == 3:
                 # Stage 3 Custom Floor Spawn Logic
-                # X: Spawn car between 1500.0 and 3500.0 units away from the wall
-                # self.ball_pos[0] is negative for the Left Wall (-3982.31).
-                # Adding positive numbers moves it correctly toward the center.
-                c_pos[0] = self.ball_pos[0] + rng.uniform(1500.0, 3500.0)
-                
-                # Y: Randomize relative to the ball so that y_offset moves them together
-                dy = rng.uniform(-1500.0, 1500.0)
-                c_pos[1] = self.ball_pos[1] + dy
-                
-                # Z: Floor
+                # Left wall is negative X (-4096). Middle is 0.
+                c_pos[0] = rng.uniform(-1500.0, -500.0)
+                c_pos[1] = self.ball_pos[1]
                 c_pos[2] = 17.01
                 
-                # Yaw: Point roughly towards the ball (with noise)
-                dx = self.ball_pos[0] - c_pos[0]
-                # Target is ball, from car -> atan2(y2 - y1, x2 - x1)
-                # target_y_rel = ball_pos_y - car_pos_y = ball_pos_y - (ball_pos_y + dy) = -dy
-                target_yaw = math.atan2(-dy, dx)
-                c_euler[1] = target_yaw + rng.uniform(-math.pi/4, math.pi/4)
+                # Ball is almost just in front of the player
+                b_pos[0] = c_pos[0] - rng.uniform(400.0, 1000.0)
+                b_pos[1] = self.ball_pos[1] + rng.uniform(-50.0, 50.0)
+                b_pos[2] = 93.15  # ball radius, resting on the floor
+                
+                # Ball Velocity: heading to the wall at 1500-2000 uu/s
+                b_speed = rng.uniform(1500.0, 2000.0)
+                b_vel[0] = -b_speed
+                b_vel[1] = rng.uniform(-100.0, 100.0)
+                b_vel[2] = 0.0
+                
+                # Yaw: Point roughly towards the ball
+                dx = b_pos[0] - c_pos[0]
+                dy = b_pos[1] - c_pos[1]
+                target_yaw = math.atan2(dy, dx)
+                c_euler[1] = target_yaw + rng.uniform(-0.1, 0.1)
                 
                 # Pitch and Roll
                 c_euler[0] = 0.0
                 c_euler[2] = 0.0
                 
-                # Velocity & Speed
-                speed = rng.uniform(0.0, 1500.0)
+                # Car Velocity driving behind the ball at 1000-1800 uu/s
+                speed = rng.uniform(1000.0, 1500.0)
                 c_vel[0] = speed * math.cos(c_euler[1])
                 c_vel[1] = speed * math.sin(c_euler[1])
                 c_vel[2] = 0.0
