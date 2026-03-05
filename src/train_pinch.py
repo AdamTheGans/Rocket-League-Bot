@@ -24,9 +24,14 @@ _STAGE: int = 1
 _DIFFICULTY: int = 1
 
 
-def env_factory():
-    """Build the pinch env. Uses module-level _STAGE and _DIFFICULTY (pickle-safe)."""
-    return build_env(render=False, tick_skip=8, stage=_STAGE, difficulty_level=_DIFFICULTY)
+class EnvFactory:
+    """Build the pinch env. Callable class is pickle-safe to properly pass arguments to Windows env worker processes."""
+    def __init__(self, stage: int, difficulty: int):
+        self.stage = stage
+        self.difficulty = difficulty
+
+    def __call__(self):
+        return build_env(render=False, tick_skip=8, stage=self.stage, difficulty_level=self.difficulty)
 
 
 def parse_args():
@@ -201,12 +206,12 @@ def main():
         if stage == 1:
             ep_secs = float(_DIFFICULTY + 1.0)
         elif stage == 2:
-            ep_secs = 4.0
+            ep_secs = 10.0
         else:
-            ep_secs = 6.0
+            ep_secs = 10.0
 
         learner = Learner(
-            env_create_function=env_factory,
+            env_create_function=EnvFactory(stage=stage, difficulty=_DIFFICULTY),
             n_proc=n_proc,
             min_inference_size=min_inference_size,
             metrics_logger=PinchLogger(
