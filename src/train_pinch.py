@@ -206,7 +206,7 @@ def main():
         if stage == 1:
             ep_secs = float(_DIFFICULTY + 1.0)
         elif stage == 2:
-            ep_secs = 10.0
+            ep_secs = 7.0
         else:
             ep_secs = 10.0
 

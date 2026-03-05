@@ -40,7 +40,7 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1, difficul
     if stage == 1:
         episode_seconds = float(difficulty_level + 1.0)
     elif stage == 2:
-        episode_seconds = 10.0
+        episode_seconds = 7.0
     else:
         episode_seconds = 10.0
 
