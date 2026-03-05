@@ -242,5 +242,16 @@ def main():
         # Run indefinitely until user terminates
         learner.learn()
 
+        # If the learner finishes due to 'q' (cumulative_timesteps < timestep_limit)
+        # break out of the stage continuation loop so it successfully quits!
+        if learner.agent.cumulative_timesteps < learner.timestep_limit:
+            print("Training terminated cleanly by user.")
+            break
+
+        # If it genuinely hit the timestep limit, increment stage and continue
+        # stage += 1
+        print("Not sure how it made it here, breaking...")
+        break
+
 if __name__ == "__main__":
     main()

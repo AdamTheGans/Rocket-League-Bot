@@ -67,6 +67,10 @@ class PinchLogger(MetricsLogger):
         self.recent_spike_100 = collections.deque(maxlen=10)
         self.recent_spike_125 = collections.deque(maxlen=10)
 
+        # Worker-local exact tracking for episode bounds
+        self.current_ep_max_spike = 0.0
+        self._prev_tick = -1
+
     def _collect_metrics(self, game_state) -> list:
         goal_scored_flag = float(getattr(game_state, "goal_scored", False))
 
@@ -99,11 +103,29 @@ class PinchLogger(MetricsLogger):
         else:
             touched = 0.0
 
+        # Handle exact episode boundaries tracking worker-local max spike
+        current_tick = getattr(game_state, 'tick_count', 1)
+        
+        episode_completed_flag = 0.0
+        reported_max_spike = 0.0
+
+        if current_tick <= self._prev_tick or self._prev_tick == -1:
+            # We detected a reset (new episode)
+            if self._prev_tick != -1: # exclude the very first step of the env
+                episode_completed_flag = 1.0
+                reported_max_spike = self.current_ep_max_spike
+                
+            self.current_ep_max_spike = 0.0
+            
+        self._prev_tick = current_tick
+
         gw = goalward_speed
-        if self._prev_gw is None or getattr(game_state, 'tick_count', 1) == 0:
+        if self._prev_gw is None or current_tick == 0:
             delta = 0.0
         else:
             delta = max(0.0, gw - self._prev_gw)
+            
+        self.current_ep_max_spike = max(self.current_ep_max_spike, delta)
         self._prev_gw = gw
 
         reward_vals = [float(GLOBAL_REWARD_BREAKDOWN.get(name, 0.0)) for name in self.TRACKED_REWARDS]
@@ -111,6 +133,7 @@ class PinchLogger(MetricsLogger):
         return [np.array([
             goal_scored_flag, ball_speed, goalward_speed,
             ball_wall_dist, car_speed, boost, touched, delta,
+            episode_completed_flag, reported_max_spike,
             *reward_vals
         ])]
 
@@ -147,11 +170,13 @@ class PinchLogger(MetricsLogger):
         goalward_spikes = []
         prev_gw = 0.0
 
+        completed_eps_max_spikes = []
+
         component_rewards = {name: [] for name in self.TRACKED_REWARDS}
 
         for step_arrays in collected_metrics:
             arr = step_arrays[0]
-            if len(arr) >= 8:
+            if len(arr) >= 10:
                 goals.append(arr[0])
                 ball_speeds.append(arr[1])
                 goalward_speeds.append(arr[2])
@@ -161,9 +186,14 @@ class PinchLogger(MetricsLogger):
                 touches.append(arr[6])
                 goalward_spikes.append(arr[7])
                 
-            if len(arr) >= 8 + len(self.TRACKED_REWARDS):
+                ep_flag = arr[8]
+                reported_spike = arr[9]
+                if ep_flag > 0.5:
+                    completed_eps_max_spikes.append(reported_spike)
+                
+            if len(arr) >= 10 + len(self.TRACKED_REWARDS):
                 for i, name in enumerate(self.TRACKED_REWARDS):
-                    component_rewards[name].append(arr[8 + i])
+                    component_rewards[name].append(arr[10 + i])
 
         n_steps = len(goals)
         if n_steps == 0:
@@ -178,33 +208,25 @@ class PinchLogger(MetricsLogger):
         avg_car_speed = float(np.mean(car_speeds))
         avg_boost = float(np.mean(boosts))
 
-        # Episode estimate: steps / max_steps_per_episode
-        est_episodes = max(1, n_steps // max(1, self._max_steps_per_ep))
-        goal_rate = total_goals / est_episodes * 100
-        touches_per_ep = total_touches / est_episodes
+        # True episode count based on exact terminations from workers
+        exact_ep_count = len(completed_eps_max_spikes)
+        episodes_for_rate = max(1, exact_ep_count)
+        
+        goal_rate = total_goals / episodes_for_rate * 100
+        touches_per_ep = total_touches / episodes_for_rate
 
-        # Tiered spike tracking (goalward spikes at kph thresholds)
-        # 50 kph ~ 1400 uu/s, 75 kph ~ 2100, 100 kph ~ 2800, 125 kph ~ 3500
-        # Calculate max spike per episode bucket to prevent 1000% metrics from sustained speeding
-        steps_per_ep = max(1, n_steps // est_episodes)
-        ep_max_spikes = []
-        for i in range(est_episodes):
-            start_idx = i * steps_per_ep
-            end_idx = min((i + 1) * steps_per_ep, len(goalward_spikes))
-            ep_range = goalward_spikes[start_idx:end_idx]
-            if ep_range:
-                ep_max_spikes.append(max(ep_range))
-            
+        # Tiered spike tracking using exactly bounded episode data
         spike_tiers = [
             ("50kph",  1400.0),
             ("75kph",  2100.0),
             ("100kph", 2800.0),
             ("125kph", 3500.0),
         ]
+        
         spike_counts = {}
         for label, thresh in spike_tiers:
-            count = sum(1 for max_s in ep_max_spikes if max_s > thresh)
-            spike_counts[label] = (count, count / est_episodes * 100)
+            count = sum(1 for spike in completed_eps_max_spikes if spike > thresh)
+            spike_counts[label] = (count, count / episodes_for_rate * 100)
 
         # Cumulative simulated gameplay time
         sim_seconds = cumulative_timesteps * self._sec_per_step
@@ -219,7 +241,7 @@ class PinchLogger(MetricsLogger):
             sim_time_str = f"{sim_hours:.1f} hours"
 
         print(f"\n{'='*8} PINCH METRICS {'='*8}")
-        print(f"  Episodes (est):           ~{est_episodes}")
+        print(f"  Episodes (exact):         {exact_ep_count}")
         print(f"  Goals this iteration:     {total_goals}  ({goal_rate:.1f}% goal rate)")
         print(f"  Ball touches:             {total_touches}  ({touches_per_ep:.1f}/ep)")
         # Spike tiers
@@ -245,7 +267,7 @@ class PinchLogger(MetricsLogger):
         print(f"{'='*32}\n")
 
         self._append_csv(
-            cumulative_timesteps, est_episodes, total_goals, goal_rate,
+            cumulative_timesteps, exact_ep_count, total_goals, goal_rate,
             total_touches, touches_per_ep, spike_counts,
             avg_ball_speed, max_gw_spike, avg_goalward,
             avg_wall_dist, avg_car_speed, avg_boost, n_steps, sim_hours,
