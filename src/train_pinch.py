@@ -63,42 +63,42 @@ def parse_args():
 def _find_highest_timestep_checkpoint(base_folder: str) -> str | None:
     """
     Given a base checkpoint folder (e.g. 'checkpoints/pinch_stage1'), 
-    finds the timestamped run folder that contains the highest timestep 
-    sub-folder inside its 'checkpoints' directory.
-    
-    If base_folder *is* already a timestamped run folder (e.g. 'checkpoints/pinch_stage1-1234/'),
-    it will detect that and return it directly if it has a valid 'checkpoints' subdirectory.
+    finds the timestamped run folder that contains the highest timestep sub-folder.
     """
-    if not os.path.isdir(base_folder):
+    if not os.path.exists(base_folder):
         return None
 
-    # Check if the user already provided an exact run folder
-    if os.path.isdir(os.path.join(base_folder, "checkpoints")):
-        # Validate that it actually contains timestep folders
-        for ts_name in os.listdir(os.path.join(base_folder, "checkpoints")):
-            if ts_name.isdigit():
+    # Scenario 1: User explicitly provided the exact timestep folder (e.g. .../7001994)
+    if os.path.isfile(os.path.join(base_folder, "PPO_POLICY.pt")):
+        # Rlgym-ppo expects the *parent* run folder, as it auto-scans for highest timestep
+        return os.path.dirname(base_folder)
+
+    # Scenario 2: User explicitly provided the run folder (e.g. .../pinch_stage1-177...)
+    for item in os.listdir(base_folder):
+        item_path = os.path.join(base_folder, item)
+        if os.path.isdir(item_path) and item.isdigit():
+            if os.path.isfile(os.path.join(item_path, "PPO_POLICY.pt")):
                 return base_folder
 
+    # Scenario 3: User provided the generic base directory (e.g. checkpoints/pinch_stage1)
     highest_ts = -1
     best_run_folder = None
 
-    # rlgym-ppo structures it as: base_folder / <unix_timestamp> / checkpoints / <timestep> / ...
     for run_name in os.listdir(base_folder):
         run_path = os.path.join(base_folder, run_name)
         if not os.path.isdir(run_path):
             continue
             
-        checkpoints_dir = os.path.join(run_path, "checkpoints")
-        if not os.path.isdir(checkpoints_dir):
-            continue
-            
-        for ts_name in os.listdir(checkpoints_dir):
-            if ts_name.isdigit():
-                ts = int(ts_name)
-                if ts > highest_ts:
-                    highest_ts = ts
-                    best_run_folder = run_path
-                    
+        # The timestep folders are directly inside run_path
+        for ts_name in os.listdir(run_path):
+            ts_path = os.path.join(run_path, ts_name)
+            if os.path.isdir(ts_path) and ts_name.isdigit():
+                if os.path.isfile(os.path.join(ts_path, "PPO_POLICY.pt")):
+                    ts = int(ts_name)
+                    if ts > highest_ts:
+                        highest_ts = ts
+                        best_run_folder = run_path
+                        
     return best_run_folder
 
 
