@@ -439,6 +439,7 @@ def build_pinch_reward(stage: float = 1.0) -> CombinedReward:
             (QuickGoalReward(base=1.0, bonus=0.5), 500.0),
             (ZFilteredGoalwardSpikeReward(),       150.0),
             (TouchReward(),                          1.5),
+            (ApproachPinchPointReward(),             0.5),
             (TimePenalty(),                         -0.05),
         )
     else:
