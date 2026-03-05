@@ -171,6 +171,12 @@ class PinchGoldenSeedSetter:
             
             # Add uniform noise to euler angles
             c_euler += rng.uniform(-self.euler_noise_rad, self.euler_noise_rad, size=3)
+            
+            # For Stage 2, 30% of the time spawn the car flat (wheels facing the ground)
+            # This forces the bot to learn how to intentionally roll its car to align with the wall
+            if self.stage == 2 and rng.random() < 0.30:
+                # Override the roll component (index 2) to ~0.0 radians
+                c_euler[2] = rng.uniform(-0.1, 0.1)
 
             # Slide the entire setup along the Y-axis (wall parallel)
             y_offset = rng.uniform(-self.y_slide_uu, self.y_slide_uu)

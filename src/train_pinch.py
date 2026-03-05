@@ -65,9 +65,19 @@ def _find_highest_timestep_checkpoint(base_folder: str) -> str | None:
     Given a base checkpoint folder (e.g. 'checkpoints/pinch_stage1'), 
     finds the timestamped run folder that contains the highest timestep 
     sub-folder inside its 'checkpoints' directory.
+    
+    If base_folder *is* already a timestamped run folder (e.g. 'checkpoints/pinch_stage1-1234/'),
+    it will detect that and return it directly if it has a valid 'checkpoints' subdirectory.
     """
     if not os.path.isdir(base_folder):
         return None
+
+    # Check if the user already provided an exact run folder
+    if os.path.isdir(os.path.join(base_folder, "checkpoints")):
+        # Validate that it actually contains timestep folders
+        for ts_name in os.listdir(os.path.join(base_folder, "checkpoints")):
+            if ts_name.isdigit():
+                return base_folder
 
     highest_ts = -1
     best_run_folder = None
