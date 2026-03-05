@@ -1,3 +1,4 @@
+import argparse
 import time
 import math
 import numpy as np
@@ -6,8 +7,12 @@ import RocketSim as rsim
 from envs.pinch import build_env
 
 def main():
+    parser = argparse.ArgumentParser(description="Test Spawns")
+    parser.add_argument("--stage", type=float, default=2.0)
+    args = parser.parse_args()
+
     print("Initializing RLGym Env...")
-    env = build_env(render=False, tick_skip=8, stage=2, difficulty_level=1)
+    env = build_env(render=False, tick_skip=8, stage=args.stage, difficulty_level=1)
     
     rlgym_env = getattr(env, "rlgym_env", env.unwrapped.rlgym_env if hasattr(env, "unwrapped") and hasattr(env.unwrapped, "rlgym_env") else env)
     engine = rlgym_env.transition_engine
@@ -18,7 +23,7 @@ def main():
     time.sleep(2.0)
     
     for i in range(10):
-        print(f"\n--- Showing Stage 2 Random Spawn {i+1}/10 ---")
+        print(f"\n--- Showing Stage {args.stage} Random Spawn {i+1}/10 ---")
         
         # Reset the environment to generate a new Stage 2 seed
         env.reset()

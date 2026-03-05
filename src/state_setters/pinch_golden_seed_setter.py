@@ -21,7 +21,7 @@ class PinchGoldenSeedSetter:
     policy overfitting. Adds the Critical Flip Timer fix to grant an infinite dodge timer.
     """
 
-    def __init__(self, randomize: bool = True, stage: int = 1, difficulty_level: int = 1):
+    def __init__(self, randomize: bool = True, stage: float = 1.0, difficulty_level: int = 1):
         self.randomize = randomize
         self.stage = stage
         
@@ -103,6 +103,17 @@ class PinchGoldenSeedSetter:
                 self.euler_noise_rad = 0.35    # +/- 35 degrees for pitch, yaw, roll
                 self.y_slide_uu = 1200.0       # Max distance to slide up/down the wall
 
+        elif self.stage == 1.5:
+            # Stage 1.5: The Bridge - Minimal Noise
+            self.pos_noise_car = np.array([10.0, 10.0, 10.0], dtype=np.float32)
+            self.pos_noise_ball = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+        
+            self.vel_noise_car = np.array([20.0, 20.0, 20.0], dtype=np.float32)
+            self.vel_noise_ball = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+
+            self.euler_noise_rad = 0.05   # +/- 0.05 radians
+            self.y_slide_uu = 200.0       # Max distance to slide up/down the wall
+
         elif self.stage == 2:
             # Stage 2: The Approach
             self.pos_noise_car = np.array([100.0, 100.0, 100.0], dtype=np.float32)
@@ -145,8 +156,15 @@ class PinchGoldenSeedSetter:
         # Apply Domain Randomization curriculum if requested
         if self.randomize:
             
+            # Dynamic Rewind for Stage 1.5
+            if self.stage == 1.5:
+                # Randomize flight time between 0.15 and 0.3 seconds
+                time_to_impact = rng.uniform(0.15, 0.3)
+                additional_rewind = time_to_impact - 0.15
+                c_pos -= c_vel * additional_rewind
+
             # Dynamic Rewind for Stage 2
-            if self.stage == 2:
+            elif self.stage == 2:
                 # Randomize flight time between 0.3 seconds and 0.6 seconds
                 time_to_impact = rng.uniform(0.3, 0.6)
                 # The baseline car pos is already 0.15s away from the impact point.

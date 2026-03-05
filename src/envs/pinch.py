@@ -20,7 +20,7 @@ from rewards.pinch_reward import build_pinch_reward, build_golden_seed_reward
 from state_setters.pinch_golden_seed_setter import PinchGoldenSeedSetter
 
 
-def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1, difficulty_level: int = 1):
+def build_env(render: bool = False, tick_skip: int = 8, stage: float = 1.0, difficulty_level: int = 1):
     """
     Build the pinch specialist environment.
 

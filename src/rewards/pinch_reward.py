@@ -412,15 +412,15 @@ class ApproachPinchPointReward(RewardFunction[AgentID, GameState, float]):
 # ─── Factory ─────────────────────────────────────────────────────────────────
 
 
-def build_pinch_reward(stage: int = 1) -> CombinedReward:
+def build_pinch_reward(stage: float = 1.0) -> CombinedReward:
     """
     Build stage-dependent pinch reward.
 
-    Stage 1: No goals rewarded. Only heavy spike weight and shaping.
+    Stage 1/1.5: No goals rewarded. Only heavy spike weight and shaping.
     Stage 2: Massive spike weight (150) equivalent to a goal (100).
     Stage 3: Full shaping, emphasis on goalward ball velocity
     """
-    if stage == 1:
+    if stage == 1 or stage == 1.5:
         return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
             (ZFilteredGoalwardSpikeReward(),       150.0),
@@ -442,7 +442,7 @@ def build_pinch_reward(stage: int = 1) -> CombinedReward:
             (TimePenalty(),                         -0.1),
         )
     else:
-        raise ValueError(f"stage must be 1, 2, or 3, got {stage}")
+        raise ValueError(f"stage must be 1, 1.5, 2, or 3, got {stage}")
 
 
 def build_golden_seed_reward() -> CombinedReward:
