@@ -193,33 +193,33 @@ class PinchGoldenSeedSetter:
             elif self.stage == 3:
                 # Stage 3 Custom Floor Spawn Logic
                 # Left wall is negative X (-4096). Middle is 0.
-                c_pos[0] = rng.uniform(-1500.0, -500.0)
+                c_pos[0] = rng.uniform(-1900.0, -1300.0)
                 c_pos[1] = self.ball_pos[1]
                 c_pos[2] = 17.01
                 
                 # Ball is almost just in front of the player
-                b_pos[0] = c_pos[0] - rng.uniform(400.0, 1000.0)
+                b_pos[0] = c_pos[0] - rng.uniform(200.0, 500.0)
                 b_pos[1] = self.ball_pos[1] + rng.uniform(-50.0, 50.0)
                 b_pos[2] = 93.15  # ball radius, resting on the floor
                 
                 # Ball Velocity: heading to the wall at 1500-2000 uu/s
-                b_speed = rng.uniform(1500.0, 2000.0)
+                b_speed = rng.uniform(1600.0, 1900.0)
                 b_vel[0] = -b_speed
-                b_vel[1] = rng.uniform(-100.0, 100.0)
+                b_vel[1] = rng.uniform(-50.0, 50.0)
                 b_vel[2] = 0.0
                 
                 # Yaw: Point roughly towards the ball
                 dx = b_pos[0] - c_pos[0]
                 dy = b_pos[1] - c_pos[1]
                 target_yaw = math.atan2(dy, dx)
-                c_euler[1] = target_yaw + rng.uniform(-0.1, 0.1)
+                c_euler[1] = target_yaw + rng.uniform(-0.05, 0.05)
                 
                 # Pitch and Roll
                 c_euler[0] = 0.0
                 c_euler[2] = 0.0
                 
                 # Car Velocity driving behind the ball at 1000-1800 uu/s
-                speed = rng.uniform(1000.0, 1500.0)
+                speed = rng.uniform(1000.0, 1300.0)
                 c_vel[0] = speed * math.cos(c_euler[1])
                 c_vel[1] = speed * math.sin(c_euler[1])
                 c_vel[2] = 0.0
