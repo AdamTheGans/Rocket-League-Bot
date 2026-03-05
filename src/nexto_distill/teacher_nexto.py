@@ -91,15 +91,15 @@ class NextoTeacher:
                 "Ensure nexto/nexto-model.pt exists."
             )
 
-        self.device = torch.device(device)
+        # NOTE: Nexto's TorchScript model has CPU device constants baked into
+        # its traced graph (CONSTANTS.c2 etc.), so it can ONLY run on CPU.
+        # The --device flag controls student training, not teacher inference.
+        self.device = torch.device("cpu")
         self.tick_skip = tick_skip
 
-        # Load TorchScript model (always load to CPU first, then move —
-        # torch.jit.load with map_location=cuda can fail for CPU-traced models)
+        # Load TorchScript model (always CPU — see note above)
         with open(model_path, "rb") as f:
             self.model = torch.jit.load(f, map_location="cpu")
-        if self.device.type != "cpu":
-            self.model = self.model.to(self.device)
         self.model.eval()
 
         # Build the action lookup table (identical to rlgym v2 LookupTableAction)
