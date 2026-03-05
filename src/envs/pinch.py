@@ -40,9 +40,9 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1, difficul
     if stage == 1:
         episode_seconds = float(difficulty_level + 1.0)
     elif stage == 2:
-        episode_seconds = 4.0
+        episode_seconds = 10.0
     else:
-        episode_seconds = 6.0
+        episode_seconds = 10.0
 
     action_parser = RepeatAction(LookupTableAction(), repeats=int(tick_skip))
 
@@ -76,7 +76,7 @@ def build_env(render: bool = False, tick_skip: int = 8, stage: int = 1, difficul
         state_mutator=state_mutator,
         obs_builder=obs_builder,
         action_parser=action_parser,
-        reward_fn=build_golden_seed_reward(),
+        reward_fn=build_pinch_reward(stage),
         termination_cond=termination_condition,
         truncation_cond=truncation_condition,
         transition_engine=RocketSimEngine(),
