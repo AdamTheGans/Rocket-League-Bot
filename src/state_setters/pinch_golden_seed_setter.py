@@ -193,17 +193,22 @@ class PinchGoldenSeedSetter:
             elif self.stage == 3:
                 # Stage 3 Custom Floor Spawn Logic
                 # Left wall is negative X (-4096). Middle is 0.
-                c_pos[0] = rng.uniform(-1900.0, -1300.0)
+                # c_pos[0] = rng.uniform(-1900.0, -1300.0)
+                # c_pos[1] = self.ball_pos[1]
+                # c_pos[2] = 17.01
+                c_pos[0] = rng.uniform(-3100.0, -2500.0)
                 c_pos[1] = self.ball_pos[1]
-                c_pos[2] = 17.01
+                c_pos[2] = rng.uniform(100.0, 250.0)
                 
                 # Ball is almost just in front of the player
-                b_pos[0] = c_pos[0] - rng.uniform(200.0, 500.0)
+                # b_pos[0] = c_pos[0] - rng.uniform(200.0, 500.0)
+                b_pos[0] = c_pos[0] - rng.uniform(300.0, 400.0)
                 b_pos[1] = self.ball_pos[1] + rng.uniform(-50.0, 50.0)
                 b_pos[2] = 93.15  # ball radius, resting on the floor
                 
                 # Ball Velocity: heading to the wall at 1500-2000 uu/s
-                b_speed = rng.uniform(1600.0, 1900.0)
+                # b_speed = rng.uniform(1600.0, 1900.0)
+                b_speed = rng.uniform(1600.0, 1800.0)
                 b_vel[0] = -b_speed
                 b_vel[1] = rng.uniform(-50.0, 50.0)
                 b_vel[2] = 0.0
@@ -215,14 +220,18 @@ class PinchGoldenSeedSetter:
                 c_euler[1] = target_yaw + rng.uniform(-0.05, 0.05)
                 
                 # Pitch and Roll
-                c_euler[0] = 0.0
-                c_euler[2] = 0.0
+                # c_euler[0] = 0.0
+                # c_euler[2] = 0.0
+                c_euler[0] = rng.uniform(-0.15, 0.15)
+                c_euler[2] = rng.uniform(-0.15, 0.15)
                 
                 # Car Velocity driving behind the ball at 1000-1800 uu/s
-                speed = rng.uniform(1000.0, 1300.0)
+                # speed = rng.uniform(1000.0, 1300.0)
+                speed = rng.uniform(1300.0, 1500.0)
                 c_vel[0] = speed * math.cos(c_euler[1])
                 c_vel[1] = speed * math.sin(c_euler[1])
-                c_vel[2] = 0.0
+                # c_vel[2] = 0.0
+                c_vel[2] = rng.uniform(0.0, 50.0)
             
             # Independent Position Noise
             b_pos += rng.uniform(-self.pos_noise_ball, self.pos_noise_ball, size=3)
@@ -288,7 +297,7 @@ class PinchGoldenSeedSetter:
             car.physics.euler_angles = c_euler
             
             # The Flip Timer Fix (Critical Mechanic)
-            if self.stage == 3:
+            if False: #TODO: Also make this self.stage == 3:
                 # Stage 3 starts on the floor normally
                 car.on_ground = True
                 car.has_jumped = False

@@ -62,7 +62,7 @@ def main():
             controls.throttle = 1.0
             
             # Wait 0.35 seconds before boosting
-            controls.boost = time_elapsed >= 0.25
+            controls.boost = time_elapsed >= 0.0
             
             # Jump between 0.4 and 0.5 seconds
             controls.jump = 0.5 <= time_elapsed <= 0.6
