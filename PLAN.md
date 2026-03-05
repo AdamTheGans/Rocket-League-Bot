@@ -242,20 +242,19 @@ Let g be unit vector toward opponent goal.
 - optionally terminate if ball becomes clearly non-goalward for too long
 
 ### Success metrics
-- % episodes with a speed spike above threshold AND goalward
+- % episodes with a speed spike above threshold AND goalward. (Calculated accurately per-episode to avoid >100% inflation).
 - median goalward speed after contact
 - % actual goals within T
-- Automated stage progression continuously monitors 10-iteration rolling averages, using `BaseException` to safely exit the run loop and automatically continue into the next stage when metrics hit mastery thresholds.
+- The script continuously monitors 10-iteration rolling averages and prints a **Stage Mastery Banner** to the console when thresholds are met. Training continues indefinitely until stopped manually.
 
 ---
 
 ## Stage 2: Approach skill (1–2 seconds pre-contact)
-### Reset distribution (medium)
-Spawn earlier:
-- Car a bit farther from wall
-- Ball still pinch-ready but more variance
-- Add more noise to yaw/speed and ball position
-Objective: learn the approach + jump/flip timing + contact.
+**Spawn:** Time-to-impact is randomly selected between `[0.3, 0.6]` seconds. 
+- **Ball Math**: We pre-calculate the exact wall-roll physics trajectory using `RocketSimEngine` up to 120 ticks, and retrieve the ball's exact state `T` seconds retrograde to prevent mesh clipping.
+- **Car Math**: The car is rewound linearly along its velocity vector by `T * 0.8`. We add `325 * (T^2)` scaling to the Z-coordinate to perfectly compensate for gravity falling during the approach time.
+- **Randomization**: Further XYZ noise is applied. Crucially, **30% of the time, the car spawns flat** (wheels facing the floor). This breaks the golden seed's perfect upright-roll orientation and actively forces the AI to learn how to mid-air roll to map its tires to the wall curve.
+Objective: learn the approach + mid-air roll timing + contact.
 
 ### Reward
 Same core, but add gentle shaping:

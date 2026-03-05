@@ -91,22 +91,28 @@ def _find_highest_timestep_checkpoint(base_folder: str) -> str | None:
     if best_exact_folder is not None:
         return best_exact_folder
 
-    # Scenario 3: User provided the generic base directory (e.g. checkpoints/pinch_stage1)
-    # We need to look inside each run folder, and then inside their timestep folders
-    for run_name in os.listdir(base_folder):
-        run_path = os.path.join(base_folder, run_name)
-        if not os.path.isdir(run_path):
-            continue
-            
-        for ts_name in os.listdir(run_path):
-            ts_path = os.path.join(run_path, ts_name)
-            if os.path.isdir(ts_path) and ts_name.isdigit():
-                if os.path.isfile(os.path.join(ts_path, "PPO_POLICY.pt")):
-                    ts = int(ts_name)
-                    if ts > highest_ts:
-                        highest_ts = ts
-                        best_exact_folder = ts_path
-                        
+    # Scenario 3: User provided the generic base directory prefix (e.g. checkpoints/pinch_stage1)
+    # This directory doesn't perfectly exist, it's a prefix for the timestamped run folders.
+    parent_dir = os.path.dirname(base_folder)
+    base_name = os.path.basename(base_folder)
+    
+    if not os.path.isdir(parent_dir):
+        return None
+
+    for run_name in os.listdir(parent_dir):
+        run_path = os.path.join(parent_dir, run_name)
+        # Check if the folder matches the prefix (e.g. pinch_stage1-177...)
+        if os.path.isdir(run_path) and run_name.startswith(base_name):
+            # Look inside this matching run_path for timestep folders
+            for ts_name in os.listdir(run_path):
+                ts_path = os.path.join(run_path, ts_name)
+                if os.path.isdir(ts_path) and ts_name.isdigit():
+                    if os.path.isfile(os.path.join(ts_path, "PPO_POLICY.pt")):
+                        ts = int(ts_name)
+                        if ts > highest_ts:
+                            highest_ts = ts
+                            best_exact_folder = ts_path
+                            
     return best_exact_folder
 
 

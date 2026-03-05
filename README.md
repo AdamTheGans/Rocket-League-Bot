@@ -177,6 +177,8 @@ Rocket-League-Bot/
 │   ├── eval_specialist_1.py        # Strike Evaluation + GIF generation
 │   ├── train_pinch.py              # Pinch training config (supports --stage auto-progression)
 │   ├── eval_pinch.py               # Pinch Evaluation + GIF generation
+│   ├── test_golden_seed_pinch.py   # Visualizes the Stage 1 golden seed impact in 120FPS real-time
+│   ├── test_stage2_spawns.py       # Visualizes the Stage 2 dynamic approach spawns with simulated physics
 │   ├── verify_env.py               # Quick strike sanity test
 │   └── verify_pinch_env.py         # Quick pinch sanity test
 ├── checkpoints/                    # Saved model checkpoints
