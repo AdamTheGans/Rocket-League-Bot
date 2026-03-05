@@ -423,27 +423,23 @@ def build_pinch_reward(stage: int = 1) -> CombinedReward:
     if stage == 1:
         return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
-            (LatchGoalwardSpeedSpikeReward(spike_threshold=2500.0, latch_reward=50.0), 1.0),
-            (ApproachPinchPointReward(),             0.05),
-            (TouchReward(),                          0.1),
-            (TimePenalty(),                         -0.03),
+            (ZFilteredGoalwardSpikeReward(),       150.0),
+            (TouchReward(),                          5.0),
+            (TimePenalty(),                          0.0),
         )
     elif stage == 2:
         return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
             (ZFilteredGoalwardSpikeReward(),       150.0),
-            (TouchReward(),                          0.05),
-            (TimePenalty(),                         -0.04),
+            (TouchReward(),                          1.5),
+            (TimePenalty(),                         -0.05),
         )
     elif stage == 3:
         return LoggingCombinedReward(
             (QuickGoalReward(base=1.0, bonus=0.5), 100.0),
-            (GoalwardSpeedSpikeReward(),             3.0),
-            (BallVelocityToGoalReward(),             0.5),
-            (BallWallProximityReward(),              0.1),
-            (ApproachPinchPointReward(),             0.3),
-            (TouchReward(),                          0.05),
-            (TimePenalty(),                         -0.05),
+            (ZFilteredGoalwardSpikeReward(),       100.0),
+            (TouchReward(),                          1.5),
+            (TimePenalty(),                         -0.1),
         )
     else:
         raise ValueError(f"stage must be 1, 2, or 3, got {stage}")

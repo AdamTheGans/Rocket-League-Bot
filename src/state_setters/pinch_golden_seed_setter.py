@@ -116,6 +116,17 @@ class PinchGoldenSeedSetter:
             self.euler_noise_rad = 0.5    # +/- 0.5 radians (~28 degrees) for pitch, yaw, roll
             self.y_slide_uu = 1200.0      # Max distance to slide up/down the wall
 
+        elif self.stage == 3:
+            # Stage 3: Live-ish Pinch-Ready States
+            self.pos_noise_car = np.array([2000.0, 2000.0, 500.0], dtype=np.float32)
+            self.pos_noise_ball = np.array([0.0, 50.0, 50.0], dtype=np.float32)
+        
+            self.vel_noise_car = np.array([400.0, 400.0, 400.0], dtype=np.float32)
+            self.vel_noise_ball = np.array([0.0, 100.0, 250.0], dtype=np.float32)
+
+            self.euler_noise_rad = 3.14159    # Full random rotations
+            self.y_slide_uu = 2500.0          # Max distance to slide up/down the wall (into corners)
+
     def apply(self, state, shared_info=None):
         """
         Applies the state mutator to the state_wrapper.
