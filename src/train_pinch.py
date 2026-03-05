@@ -60,40 +60,36 @@ def parse_args():
     return parser.parse_args()
 
 
-def _find_latest_checkpoint_in(folder: str) -> str | None:
+def _find_highest_timestep_checkpoint(base_folder: str) -> str | None:
     """
-    Given a base checkpoint folder (e.g. 'checkpoints/pinch_stage1'), find
-    the latest timestamped run folder (rlgym-ppo appends a unix timestamp).
-    Returns the run folder path, or None if nothing found.
+    Given a base checkpoint folder (e.g. 'checkpoints/pinch_stage1'), 
+    finds the timestamped run folder that contains the highest timestep 
+    sub-folder inside its 'checkpoints' directory.
     """
-    if not os.path.isdir(folder):
-        # Maybe the user gave us the exact run folder already
-        parent = os.path.dirname(folder)
-        if os.path.isdir(parent):
-            folder = parent
-        else:
-            return None
-
-    # Look for timestamped sub-folders in the parent directory
-    parent_dir = os.path.dirname(folder)
-    base_name = os.path.basename(folder)
-
-    if not os.path.isdir(parent_dir):
+    if not os.path.isdir(base_folder):
         return None
 
-    # Find all folders starting with our base name
-    candidates = []
-    for name in os.listdir(parent_dir):
-        full = os.path.join(parent_dir, name)
-        if os.path.isdir(full) and name.startswith(base_name):
-            candidates.append(full)
+    highest_ts = -1
+    best_run_folder = None
 
-    if not candidates:
-        return None
-
-    # Return the one with the highest unix timestamp (or just the latest modified)
-    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-    return candidates[0]
+    # rlgym-ppo structures it as: base_folder / <unix_timestamp> / checkpoints / <timestep> / ...
+    for run_name in os.listdir(base_folder):
+        run_path = os.path.join(base_folder, run_name)
+        if not os.path.isdir(run_path):
+            continue
+            
+        checkpoints_dir = os.path.join(run_path, "checkpoints")
+        if not os.path.isdir(checkpoints_dir):
+            continue
+            
+        for ts_name in os.listdir(checkpoints_dir):
+            if ts_name.isdigit():
+                ts = int(ts_name)
+                if ts > highest_ts:
+                    highest_ts = ts
+                    best_run_folder = run_path
+                    
+    return best_run_folder
 
 
 def main():
@@ -128,7 +124,7 @@ def main():
     is_resume = args.resume_from is not None
     resume_path = args.resume_from
 
-    from metrics.pinch_metrics import PinchLogger, StageCompleteException
+    from metrics.pinch_metrics import PinchLogger
 
     while stage <= 3:
         _STAGE = stage
@@ -165,20 +161,18 @@ def main():
         print(f"  Seed: {args.seed}")
         print(f"{'='*50}\n")
 
-        # Determine checkpoint_load_folder:
-        if is_resume:
-            # Cross-stage resume: find the actual run folder
-            resolved = _find_latest_checkpoint_in(resume_path)
-            if resolved is None:
-                print(f"WARNING: Could not find checkpoint run in {resume_path}")
-                print("Starting fresh instead.")
-                load_folder = None
-            else:
-                load_folder = resolved
-                print(f"Resolved resume path: {load_folder}")
+        # Auto-resolve the best checkpoint folder for the current stage if we aren't given a cross-stage resume path
+        if not is_resume:
+            resume_path = checkpoint_folder
+
+        resolved = _find_highest_timestep_checkpoint(resume_path)
+        if resolved is None:
+            print(f"WARNING: Could not find any valid checkpoints in {resume_path}")
+            print("Starting fresh instead.")
+            load_folder = None
         else:
-            # Fresh start or same-stage auto-resume via "latest"
-            load_folder = "latest"
+            load_folder = resolved
+            print(f"Resolved resume path with highest timestep: {load_folder}")
 
         if stage == 1:
             ep_secs = float(_DIFFICULTY + 1.0)
@@ -216,24 +210,8 @@ def main():
             standardize_obs=False,
         )
 
-        try:
-            learner.learn()
-            # If learn exits normally without an exception, the user quit or timestep limit reached
-            break
-        except StageCompleteException as e:
-            print(f"\n{'='*60}")
-            print(f"  🎉 STAGE {stage} MASTERED! Transitioning to Stage {stage + 1}")
-            print(f"  Criteria met at {learner.agent.cumulative_timesteps} timesteps.")
-            print(f"{'='*60}\n")
-            
-            # Save final checkpoint for this stage
-            learner.save(learner.agent.cumulative_timesteps)
-            
-            # Setup for next stage auto-resume
-            is_resume = True
-            resume_path = checkpoint_folder
-            stage += 1
-
+        # Run indefinitely until user terminates
+        learner.learn()
 
 if __name__ == "__main__":
     main()

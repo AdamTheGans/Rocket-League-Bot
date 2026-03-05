@@ -16,11 +16,7 @@ from rlgym_ppo.util import MetricsLogger
 from rlgym_ppo.util.rlgym_v2_gym_wrapper import RLGymV2GymWrapper
 
 from rewards.pinch_reward import GLOBAL_REWARD_BREAKDOWN
-class StageCompleteException(BaseException):
-    """Raised when the moving average metrics indicate the current stage is mastered."""
-    def __init__(self, stage: int):
-        self.stage = stage
-        super().__init__(f"Stage {stage} master criteria met!")
+from rewards.pinch_reward import GLOBAL_REWARD_BREAKDOWN
 
 from rlgym.rocket_league import common_values
 
@@ -189,6 +185,16 @@ class PinchLogger(MetricsLogger):
 
         # Tiered spike tracking (goalward spikes at kph thresholds)
         # 50 kph ~ 1400 uu/s, 75 kph ~ 2100, 100 kph ~ 2800, 125 kph ~ 3500
+        # Calculate max spike per episode bucket to prevent 1000% metrics from sustained speeding
+        steps_per_ep = max(1, n_steps // est_episodes)
+        ep_max_spikes = []
+        for i in range(est_episodes):
+            start_idx = i * steps_per_ep
+            end_idx = min((i + 1) * steps_per_ep, len(goalward_spikes))
+            ep_range = goalward_spikes[start_idx:end_idx]
+            if ep_range:
+                ep_max_spikes.append(max(ep_range))
+            
         spike_tiers = [
             ("50kph",  1400.0),
             ("75kph",  2100.0),
@@ -197,7 +203,7 @@ class PinchLogger(MetricsLogger):
         ]
         spike_counts = {}
         for label, thresh in spike_tiers:
-            count = sum(1 for s in goalward_spikes if s > thresh)
+            count = sum(1 for max_s in ep_max_spikes if max_s > thresh)
             spike_counts[label] = (count, count / est_episodes * 100)
 
         # Cumulative simulated gameplay time
@@ -285,10 +291,14 @@ class PinchLogger(MetricsLogger):
             
             if self.stage == 1:
                 if avg_50 > 50.0 and avg_75 > 15.0:
-                    raise StageCompleteException(1)
+                    print(f"\n{'='*60}")
+                    print(f"  🎉 STAGE {self.stage} MASTERED! Model meets mastery criteria!")
+                    print(f"{'='*60}\n")
             elif self.stage == 2:
                 if avg_50 > 95.0 and avg_75 > 75.0 and avg_100 > 50.0 and avg_125 > 25.0 and avg_goal_rate > 50.0:
-                    raise StageCompleteException(2)
+                    print(f"\n{'='*60}")
+                    print(f"  🎉 STAGE {self.stage} MASTERED! Model meets mastery criteria!")
+                    print(f"{'='*60}\n")
 
     def _append_csv(self, timesteps, episodes, goals, goal_rate,
                     touches, touches_per_ep, spike_counts,
