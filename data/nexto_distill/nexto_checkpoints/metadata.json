@@ -1,0 +1,19 @@
+{
+  "obs_dim": 92,
+  "num_actions": 90,
+  "layer_sizes": [
+    2048,
+    1024,
+    1024,
+    512
+  ],
+  "lut_hash": "5f5ff90fda131eea",
+  "best_val_loss": 2.0821895899531992,
+  "best_val_acc": 0.4060441220912662,
+  "best_val_acc5": 0.7846882240354589,
+  "best_epoch": 11,
+  "total_params": 3918426,
+  "lr": 0.0003,
+  "kl_weight": 0.0,
+  "seed": 42
+}

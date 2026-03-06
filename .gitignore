@@ -12,6 +12,10 @@ dist/
 build/
 *.egg
 
+# Nexto distillation
+data/nexto_distill/shards
+*.npz
+
 # Checkpoints (large model files)
 checkpoints/
 

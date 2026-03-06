@@ -129,6 +129,7 @@ def train_bc(
     amp: bool = False,
     patience: int = 0,
     num_workers: int = 0,
+    extra_data_dirs: Optional[List[str]] = None,
 ):
     print("=" * 60)
     print("  NEXTO DISTILLATION — BEHAVIOR CLONING TRAINING")
@@ -169,7 +170,21 @@ def train_bc(
 
     train_ds = DistillationDataset(shard_paths, train_episodes)
     val_ds = DistillationDataset(shard_paths, val_episodes)
-    print(f"  Samples:  {len(train_ds):,} train, {len(val_ds):,} val")
+    print(f"  Primary:  {len(train_ds):,} train, {len(val_ds):,} val")
+
+    # ── Load extra data dirs (e.g., DAgger shards) — train only ──
+    if extra_data_dirs:
+        for extra_dir in extra_data_dirs:
+            extra_shards = sorted(glob.glob(os.path.join(extra_dir, "shard_*.npz")))
+            if extra_shards:
+                extra_ds = DistillationDataset(extra_shards)  # No episode filtering
+                print(f"  Extra ({extra_dir}): {len(extra_ds):,} samples added to train")
+                # Merge into train_ds
+                train_ds.obs = np.concatenate([train_ds.obs, extra_ds.obs], axis=0)
+                train_ds.actions = np.concatenate([train_ds.actions, extra_ds.actions], axis=0)
+                train_ds.logits = np.concatenate([train_ds.logits, extra_ds.logits], axis=0)
+
+    print(f"  Total:    {len(train_ds):,} train, {len(val_ds):,} val")
 
     if len(train_ds) == 0:
         raise RuntimeError("No training samples! Check your data_dir and shard files.")
@@ -374,6 +389,8 @@ def main():
     parser.add_argument("--patience", type=int, default=0,
                         help="Early stopping patience (0=disabled)")
     parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--extra_data_dirs", type=str, nargs="*", default=None,
+                        help="Extra shard directories (e.g. DAgger data) to add to training")
 
     args = parser.parse_args()
 
@@ -391,6 +408,7 @@ def main():
         amp=args.amp,
         patience=args.patience,
         num_workers=args.num_workers,
+        extra_data_dirs=args.extra_data_dirs,
     )
 
 
