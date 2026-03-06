@@ -1,0 +1,15 @@
+{
+  "total_steps": 1000000,
+  "total_episodes": 7893,
+  "total_shards": 20,
+  "shard_size": 50000,
+  "seed": 42,
+  "tick_skip": 8,
+  "episode_seconds": 30.0,
+  "device": "cuda",
+  "lut_hash": "5f5ff90fda131eea",
+  "num_actions": 90,
+  "student_obs_dim": 92,
+  "elapsed_seconds": 3496.978390932083,
+  "steps_per_second": 285.96116081045056
+}
