@@ -130,6 +130,7 @@ def train_bc(
     patience: int = 0,
     num_workers: int = 0,
     extra_data_dirs: Optional[List[str]] = None,
+    resume_from: Optional[str] = None,
 ):
     print("=" * 60)
     print("  NEXTO DISTILLATION — BEHAVIOR CLONING TRAINING")
@@ -203,6 +204,11 @@ def train_bc(
     model = StudentPolicy(obs_dim, num_actions, layer_sizes).to(dev)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"  Parameters: {n_params:,}")
+
+    # Warm-start from previous checkpoint if provided
+    if resume_from is not None:
+        model.load_state_dict(torch.load(resume_from, map_location=device))
+        print(f"  Resumed from: {resume_from}")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -391,6 +397,8 @@ def main():
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--extra_data_dirs", type=str, nargs="*", default=None,
                         help="Extra shard directories (e.g. DAgger data) to add to training")
+    parser.add_argument("--resume_from", type=str, default=None,
+                        help="Path to student_policy.pt to warm-start from")
 
     args = parser.parse_args()
 
@@ -409,6 +417,7 @@ def main():
         patience=args.patience,
         num_workers=args.num_workers,
         extra_data_dirs=args.extra_data_dirs,
+        resume_from=args.resume_from,
     )
 
 
