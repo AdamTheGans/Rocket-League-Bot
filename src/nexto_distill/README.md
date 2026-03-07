@@ -85,6 +85,41 @@ python -m nexto_distill.eval_imitation \
     --visualize
 ```
 
+### Step 4: Visualize (RLViser 3D)
+
+Watch any policy play 1v1 in real-time with RLViser:
+
+```bash
+cd src
+
+# Student BC with 3D visualization
+python -m nexto_distill.visualize_policy --policy student_bc \
+    --checkpoint ../checkpoints/nexto_distill/student_policy.pt \
+    --viser --episodes 5
+
+# Teacher Nexto in slow-motion
+python -m nexto_distill.visualize_policy --policy teacher_nexto \
+    --viser --speed 0.5 --episodes 3
+
+# Random baseline (headless, metrics only)
+python -m nexto_distill.visualize_policy --policy random --episodes 10
+
+# Student vs lazy chaser opponent
+python -m nexto_distill.visualize_policy --policy student_bc \
+    --checkpoint ../checkpoints/nexto_distill/student_policy.pt \
+    --opponent lazy --viser --episodes 5
+```
+
+**Key flags:**
+- `--policy {teacher_nexto,student_bc,random,ppo_checkpoint}` — which policy controls blue
+- `--checkpoint <path>` — `.pt` file (required for `student_bc`)
+- `--opponent {lazy,idle}` — orange car behavior (default: lazy)
+- `--viser` — launch RLViser 3D visualization
+- `--speed <float>` — playback speed (0.5 = slow-mo, 2.0 = fast)
+- `--episodes`, `--tick_skip`, `--episode_seconds`, `--seed`, `--device`
+
+Each episode prints: steps, simulation time, goals, touches, avg ball speed, avg distance to ball.
+
 ## Architecture
 
 ```
@@ -96,6 +131,7 @@ nexto_distill/
 ├── generate_dataset.py     # RocketSim rollout + shard saving
 ├── train_bc.py             # Behavior cloning trainer
 ├── eval_imitation.py       # Offline + online evaluation
+├── visualize_policy.py     # RLViser 3D visualization tool
 └── README.md
 ```
 
