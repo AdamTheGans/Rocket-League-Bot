@@ -101,6 +101,44 @@ class SimpleGoalReward:
         return rewards
 
 
+class SparseGoalSpeedReward:
+    """
+    Sparse: Massive payout for scoring, heavily scaled by ball speed.
+    Fixes the velocity integration trap by only rewarding speed ONCE upon scoring.
+    """
+
+    def __init__(self, base_goal_value: float = 20.0, speed_multiplier: float = 30.0):
+        self.base_goal_value = base_goal_value
+        self.speed_multiplier = speed_multiplier
+
+    def reset(self, agents, initial_state, shared_info):
+        pass
+
+    def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
+        rewards = {agent_id: 0.0 for agent_id in agents}
+        
+        if any(is_terminated.values()):
+            ball_y = state.ball.position[1]
+            # Calculate ball speed ratio (0.0 to 1.0)
+            ball_speed = float(np.linalg.norm(state.ball.linear_velocity))
+            speed_ratio = ball_speed / common_values.BALL_MAX_SPEED
+            
+            bonus = self.base_goal_value + (speed_ratio * self.speed_multiplier)
+
+            for agent_id in agents:
+                car = state.cars[agent_id]
+                # Blue scored
+                if car.team_num == 0 and ball_y > 0:
+                    rewards[agent_id] = bonus
+                # Orange scored
+                elif car.team_num == 1 and ball_y < 0:
+                    rewards[agent_id] = bonus
+                # Scored upon
+                else:
+                    rewards[agent_id] = -self.base_goal_value
+        return rewards
+
+
 class VelocityTowardBallReward:
     """
     Dense: reward the agent for moving toward the ball.
@@ -138,10 +176,7 @@ class VelocityTowardBallReward:
 class BallVelocityToGoalReward:
     """
     Dense: reward absolute ball velocity toward the opponent's goal.
-
-    NOT a delta — rewards the current goalward speed directly.
-    At difficulty=0, a correctly-pinched ball flying at 3000 uu/s toward
-    goal produces sustained high reward every tick.
+    (Kept for normal play, removed from Kuxir to prevent integration trap).
     """
 
     def __init__(self, weight: float = 0.01):
@@ -177,12 +212,10 @@ class BallVelocityToGoalReward:
 class TouchBallReward:
     """
     Sparse-ish: +touch_value each time the ball is touched.
-
-    Uses ball-car distance as a proxy for contact since rlgym v2
-    doesn't always expose a clean ball_touches counter.
     """
 
-    def __init__(self, touch_value: float = 1.0, touch_distance: float = 350.0):
+    # Fix: Changed touch_distance to 170.0 to match actual hitbox collision radii
+    def __init__(self, touch_value: float = 1.0, touch_distance: float = 170.0):
         self.touch_value = touch_value
         self.touch_distance = touch_distance
         self._gave_touch: Dict[AgentID, bool] = {}
@@ -204,11 +237,24 @@ class TouchBallReward:
         return rewards
 
 
+class TickPenalty:
+    """
+    Dense: Applies a constant negative reward every step.
+    Forces the bot to complete the episode (score) as fast as possible.
+    """
+    def __init__(self, penalty: float = 0.02):
+        self.penalty = penalty
+
+    def reset(self, agents, initial_state, shared_info):
+        pass
+
+    def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
+        return {agent_id: -self.penalty for agent_id in agents}
+
+
 class TimeoutPenalty:
     """
     Sparse: -penalty_value when the episode is truncated (timeout).
-
-    Gently discourages wasting time without scoring.
     """
 
     def __init__(self, penalty_value: float = 1.0):
@@ -228,17 +274,10 @@ class TimeoutPenalty:
 class CombinedRewardWrapper:
     """
     Combine multiple reward functions with weights.
-
     Sums the rewards from all component functions.
     """
 
     def __init__(self, *reward_weight_pairs):
-        """
-        Parameters
-        ----------
-        *reward_weight_pairs : tuple of (RewardFunction, float)
-            Each pair is (reward_fn, weight).
-        """
         self.components = list(reward_weight_pairs)
 
     def reset(self, agents, initial_state, shared_info):
@@ -271,21 +310,22 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
     """
     Build the reward function for Kuxir pinch mechanic episodes.
 
-    Dense approach + dense result + sparse contact + sparse goal + timeout.
-    At difficulty=0, the bot gets immediate dense reward from the ball
-    already flying goalward, teaching it to associate the pinch state
-    with high value.
+    Uses a time bleed to encourage speed, and a massive jackpot for high-velocity goals.
     """
     return CombinedRewardWrapper(
-        # Dense approach: drive toward the ball
-        (VelocityTowardBallReward(weight=0.05), 1.0),
-        # Dense result: absolute ball velocity toward goal (NOT delta)
-        (BallVelocityToGoalReward(weight=0.1), 1.0),
-        # Sparse contact: bonus for touching the ball
-        (TouchBallReward(touch_value=1.0), 1.0),
-        # Sparse goal: big payout for scoring
-        (SimpleGoalReward(goal_value=20.0), 1.0),
-        # Timeout penalty: gentle nudge to act
+        # Dense approach: minor breadcrumbs to keep it engaged
+        (VelocityTowardBallReward(weight=0.01), 1.0),
+        
+        # Dense penalty: Bleed reward every step so it wants to score FAST
+        (TickPenalty(penalty=0.02), 1.0),
+        
+        # Sparse contact: Must physically hit the ball for a bonus
+        (TouchBallReward(touch_value=2.0, touch_distance=170.0), 1.0),
+        
+        # Sparse jackpot: Replaces simple goal + dense velocity
+        (SparseGoalSpeedReward(base_goal_value=20.0, speed_multiplier=30.0), 1.0),
+        
+        # Timeout penalty - FIXED keyword argument here
         (TimeoutPenalty(penalty_value=1.0), 1.0),
     )
 
@@ -293,16 +333,6 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
 def build_mixed_reward(mechanic_name: str = "kuxir") -> MixedRewardFunction:
     """
     Build the full mixed reward function with mechanic dispatch.
-
-    Parameters
-    ----------
-    mechanic_name : str
-        The mechanic to register rewards for (default "kuxir").
-
-    Returns
-    -------
-    MixedRewardFunction
-        Ready-to-use reward function that dispatches based on setter_type.
     """
     return MixedRewardFunction(
         mechanic_rewards={mechanic_name: build_kuxir_reward()},
