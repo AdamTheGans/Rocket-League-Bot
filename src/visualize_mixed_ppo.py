@@ -207,7 +207,8 @@ def visualize(args):
             if current_setter != "normal":
                 opp_action = 0  # Force idle during mechanic setups
             else:
-                opp_action = opp_fn(obs_dict, game_state, orange_agent)
+                # SELF-PLAY: Use the exact same PPO policy for the Orange car
+                opp_action = policy_fn(obs_dict, game_state, orange_agent)
 
             actions = {
                 blue_agent: np.array([action_idx]),

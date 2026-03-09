@@ -20,15 +20,7 @@ from rlgym.rocket_league import common_values
 class MixedRewardFunction:
     """
     Dispatches reward computation based on ``shared_info["setter_type"]``.
-
-    Parameters
-    ----------
-    mechanic_rewards : dict[str, RewardFunction]
-        Maps mechanic names (e.g., ``"kuxir"``) to rlgym RewardFunction objects.
-    default_reward : RewardFunction
-        The reward function used for "normal" (non-mechanic) episodes.
     """
-
     def __init__(
         self,
         mechanic_rewards: Dict[str, Any],
@@ -39,22 +31,26 @@ class MixedRewardFunction:
         self._current_setter_type: str = "normal"
         self._active_reward = default_reward
 
+    @property
+    def last_rewards(self):
+        """Pass the last_rewards dict up from the active reward wrapper."""
+        if hasattr(self._active_reward, "last_rewards"):
+            return self._active_reward.last_rewards
+        return {}
+
     def reset(
         self,
         agents: List[AgentID],
         initial_state: GameState,
         shared_info: Dict[str, Any],
     ) -> None:
-        """Select the appropriate reward function based on setter_type."""
         self._current_setter_type = shared_info.get("setter_type", "normal")
 
-        # Pick the right reward function
         if self._current_setter_type in self.mechanic_rewards:
             self._active_reward = self.mechanic_rewards[self._current_setter_type]
         else:
             self._active_reward = self.default_reward
 
-        # Reset the selected reward function
         self._active_reward.reset(agents, initial_state, shared_info)
 
     def get_rewards(
@@ -65,11 +61,9 @@ class MixedRewardFunction:
         is_truncated: Dict[AgentID, bool],
         shared_info: Dict[str, Any],
     ) -> Dict[AgentID, float]:
-        """Delegate to the active reward function."""
         return self._active_reward.get_rewards(
             agents, state, is_terminated, is_truncated, shared_info
         )
-
 
 # ─────────────────────────────────────────────────────────────────── #
 #  Reward building blocks
@@ -271,25 +265,61 @@ class TimeoutPenalty:
         return rewards
 
 
+class PinchVelocityReward:
+    """Rewards the bot heavily for making the ball travel FAST towards the enemy net."""
+    def __init__(self, min_speed=2000.0):
+        self.min_speed = min_speed
+
+    def reset(self, agents, initial_state, shared_info):
+        pass
+
+    def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
+        rewards = {agent_id: 0.0 for agent_id in agents}
+        
+        # Ball Y velocity
+        ball_vy = state.ball.linear_velocity[1]
+        
+        for agent_id in agents:
+            car = state.cars[agent_id]
+            target_dir = 1.0 if car.team_num == 0 else -1.0
+            
+            # Is the ball moving towards the correct net?
+            if ball_vy * target_dir > 0:
+                speed_towards_net = abs(ball_vy)
+                if speed_towards_net > self.min_speed:
+                    # A 3000 speed pinch yields 0.01 per tick. 4000 yields 0.04 per tick.
+                    rewards[agent_id] = ((speed_towards_net - self.min_speed) / 10000.0) ** 2
+                    
+        return rewards
+
+
 class CombinedRewardWrapper:
     """
     Combine multiple reward functions with weights.
-    Sums the rewards from all component functions.
+    Sums the rewards from all component functions and tracks individual components.
     """
-
     def __init__(self, *reward_weight_pairs):
         self.components = list(reward_weight_pairs)
+        self.last_rewards = {}
 
     def reset(self, agents, initial_state, shared_info):
+        self.last_rewards = {agent_id: {} for agent_id in agents}
         for reward_fn, _ in self.components:
             reward_fn.reset(agents, initial_state, shared_info)
 
     def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
         combined = {agent_id: 0.0 for agent_id in agents}
+        self.last_rewards = {agent_id: {} for agent_id in agents}
+        
         for reward_fn, weight in self.components:
             sub_rewards = reward_fn.get_rewards(agents, state, is_terminated, is_truncated, shared_info)
+            reward_name = reward_fn.__class__.__name__
+            
             for agent_id in agents:
-                combined[agent_id] += sub_rewards.get(agent_id, 0.0) * weight
+                val = sub_rewards.get(agent_id, 0.0) * weight
+                combined[agent_id] += val
+                self.last_rewards[agent_id][reward_name] = val
+                
         return combined
 
 
@@ -327,6 +357,7 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
         
         # Timeout penalty - FIXED keyword argument here
         (TimeoutPenalty(penalty_value=1.0), 1.0),
+        (PinchVelocityReward(min_speed=1500.0), 2.0),
     )
 
 

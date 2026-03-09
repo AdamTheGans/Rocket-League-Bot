@@ -132,13 +132,36 @@ class MechanicTrajectorySetter:
 
             # Slice: keep `keep_frames` frames immediately BEFORE the mechanic
             start = max(0, mechanic_frame - keep_frames)
-            end = mechanic_frame  # exclusive — don't include the mechanic frame itself
+            end = mechanic_frame  # exclusive
 
             if end - start < 5:
                 print(f"  WARNING: Skipping {fpath.name} — only {end - start} usable frames")
                 continue
 
-            self.trajectories.append(raw[start:end].copy())
+            sliced_traj = raw[start:end].copy()
+
+            # --- THE FIX: STANDARDIZE TO BLUE TEAM (ATTACKING +Y) ---
+            # ball_vy is at index 4 (COL_BALL_LIN_VEL starts at 3, + 1 for Y)
+            ball_vy_at_mechanic = raw[mechanic_frame, 4]
+            
+            # If the ball is moving towards the negative Y net, it was an Orange player.
+            # We must rotate the entire trajectory 180 degrees around the center field (Z-axis).
+            if ball_vy_at_mechanic < 0:
+                # Invert X and Y Positions (Ball and Car)
+                sliced_traj[:, [0, 1, 9, 10]] *= -1.0
+                
+                # Invert X and Y Linear Velocities (Ball and Car)
+                sliced_traj[:, [3, 4, 12, 13]] *= -1.0
+                
+                # Invert X and Y Angular Velocities (Ball and Car)
+                sliced_traj[:, [6, 7, 15, 16]] *= -1.0
+                
+                # Rotate Car Yaw (Euler index 23) by 180 degrees (Pi radians)
+                sliced_traj[:, 23] += math.pi
+                # Wrap yaw back to [-pi, pi] to keep it clean
+                sliced_traj[:, 23] = (sliced_traj[:, 23] + math.pi) % (2 * math.pi) - math.pi
+
+            self.trajectories.append(sliced_traj)
 
         if not self.trajectories:
             raise RuntimeError(
@@ -151,6 +174,8 @@ class MechanicTrajectorySetter:
         print(f"  [{self.mechanic_name}] Loaded {len(self.trajectories)} trajectories "
               f"(frames per traj: min={min(shapes)}, max={max(shapes)}, "
               f"target={keep_frames})")
+
+
 
     # ─────────────────── State Application ──────────────────────── #
 

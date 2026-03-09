@@ -98,6 +98,8 @@ class CurriculumCallback(BaseCallback):
         self._normal_ep_lengths: List[int] = []
         self._mechanic_goals: int = 0
         self._mechanic_episodes: int = 0
+        self._mechanic_times_to_goal: List[float] = []
+        self._reward_components: Dict[str, List[float]] = {}
 
     def _on_step(self) -> bool:
         """Called after every environment step by SB3."""
@@ -113,6 +115,9 @@ class CurriculumCallback(BaseCallback):
                 self._mechanic_episodes += 1
                 if scored:
                     self._mechanic_goals += 1
+                    # ONLY record time_to_goal if they actually scored
+                    if f"{mn}_time_to_goal" in info:
+                        self._mechanic_times_to_goal.append(float(info[f"{mn}_time_to_goal"]))
 
             # Mechanic telemetry
             if f"{mn}_max_ball_speed" in info:
@@ -125,6 +130,13 @@ class CurriculumCallback(BaseCallback):
             # Normal play telemetry
             if "normal_episode_length" in info:
                 self._normal_ep_lengths.append(int(info["normal_episode_length"]))
+
+            # ── Capture Individual Reward Components ──
+            if "reward_components" in info:
+                for rew_name, rew_val in info["reward_components"].items():
+                    if rew_name not in self._reward_components:
+                        self._reward_components[rew_name] = []
+                    self._reward_components[rew_name].append(float(rew_val))
 
         # ── Periodic evaluation ─────────────────────────────────────
         if self.num_timesteps - self._last_eval_step >= self.eval_interval:
@@ -184,12 +196,31 @@ class CurriculumCallback(BaseCallback):
                 f"global/episode_length_normal",
                 np.mean(self._normal_ep_lengths),
             )
+        
+        # Time to Goal (only if there were goals this interval)
+        if self._mechanic_times_to_goal:
+            self.logger.record(
+                f"{mn}/avg_time_to_goal",
+                np.mean(self._mechanic_times_to_goal),
+            )
+
+        # Reward Components Logging
+        if self._reward_components:
+            for rew_name, rew_values in self._reward_components.items():
+                if rew_values:
+                    self.logger.record(
+                        f"rewards/{rew_name}",
+                        np.mean(rew_values)
+                    )
+            # Clear the dictionary values for the next interval
+            self._reward_components.clear()
 
         # Clear per-interval buffers (keep cumulative counters)
         self._mechanic_max_speeds.clear()
         self._mechanic_end_speeds.clear()
         self._mechanic_ep_lengths.clear()
         self._normal_ep_lengths.clear()
+        self._mechanic_times_to_goal.clear()
 
     def _evaluate_and_adjust(self) -> None:
         """Check success rate and adjust curriculum sliders."""

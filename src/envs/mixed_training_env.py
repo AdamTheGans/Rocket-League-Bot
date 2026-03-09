@@ -19,6 +19,7 @@ import numpy as np
 
 from rlgym.api import RLGym
 from rlgym.rocket_league.sim import RocketSimEngine
+from rlgym.rocket_league.api import GameState
 from rlgym.rocket_league.action_parsers import LookupTableAction, RepeatAction
 from rlgym.rocket_league.done_conditions import GoalCondition, TimeoutCondition, AnyCondition
 from rlgym.rocket_league.obs_builders import DefaultObs
@@ -33,7 +34,28 @@ from state_setters.trajectory_setter import MechanicTrajectorySetter
 from state_setters.mixed_state_setter import MixedStateSetter
 from rewards.mixed_reward import build_mixed_reward
 from wrappers.self_play_env import SelfPlayEnv, make_idle_opponent, make_frozen_opponent
+from rlgym.api import DoneCondition, RewardFunction
 
+class DynamicTimeoutCondition(DoneCondition):
+    """Gives 15s for normal play, but only 2.5s for mechanics to force speed."""
+    def __init__(self, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5):
+        super().__init__()
+        self.normal_timeout = normal_seconds * 120  # Convert to physics ticks
+        self.mechanic_timeout = mechanic_seconds * 120
+        self.steps = 0
+        self.current_limit = self.normal_timeout
+
+    def reset(self, initial_state: GameState) -> None:
+        self.steps = 0
+        # If the ball starts on the wall (X > 3000), it's a Kuxir setup
+        if abs(initial_state.ball.position[0]) > 3000:
+            self.current_limit = self.mechanic_timeout
+        else:
+            self.current_limit = self.normal_timeout
+
+    def step(self, state: GameState) -> bool:
+        self.steps += state.tick_count - state.previous_tick_count
+        return self.steps >= self.current_limit
 
 def make_mixed_env(
     mechanic_name: str = "kuxir",
@@ -128,7 +150,7 @@ def make_mixed_env(
         reward_fn=build_mixed_reward(mechanic_name=mechanic_name),
         termination_cond=GoalCondition(),
         truncation_cond=AnyCondition(
-            TimeoutCondition(timeout_seconds=episode_seconds),
+            DynamicTimeoutCondition(15.0, 2.5),
         ),
         transition_engine=RocketSimEngine(),
     )
