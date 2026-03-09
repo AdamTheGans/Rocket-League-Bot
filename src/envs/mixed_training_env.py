@@ -47,6 +47,7 @@ def make_mixed_env(
     opponent_device: str = "cpu",
     fps: int = 30,
     pre_mechanic_seconds: float = 1.5,
+    idle_opponent_during_mechanic: bool = True,
 ) -> SelfPlayEnv:
     """
     Build a 1v1 mixed-training environment wrapped for SB3.
@@ -150,6 +151,7 @@ def make_mixed_env(
         mechanic_name=mechanic_name,
         mechanic_setter=mechanic_setter,
         mixed_setter=mixed_setter,
+        idle_opponent_during_mechanic=idle_opponent_during_mechanic, # <--- PASS IT DOWN
     )
 
     return env

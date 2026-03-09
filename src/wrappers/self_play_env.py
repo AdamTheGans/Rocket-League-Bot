@@ -65,6 +65,7 @@ class SelfPlayEnv(gym.Env):
         mechanic_setter=None,
         mixed_setter=None,
         goal_reward_bonus: float = 0.0,
+        idle_opponent_during_mechanic: bool = True, # <--- NEW PARAMETER
     ):
         super().__init__()
         self.env = rlgym_env
@@ -73,6 +74,7 @@ class SelfPlayEnv(gym.Env):
         self._mechanic_setter = mechanic_setter
         self._mixed_setter = mixed_setter
         self.goal_reward_bonus = goal_reward_bonus
+        self.idle_opponent_during_mechanic = idle_opponent_during_mechanic # <--- STORE IT
 
         # Gym spaces
         self.observation_space = gym.spaces.Box(
@@ -169,7 +171,12 @@ class SelfPlayEnv(gym.Env):
         if self.orange_agent is not None and self._last_obs_dict is not None:
             opp_obs = self._last_obs_dict.get(self.orange_agent)
             if opp_obs is not None:
-                opp_action = self.opponent_fn(opp_obs)
+                # NEW LOGIC: Override with idle if we are practicing a mechanic
+                if self.idle_opponent_during_mechanic and self._current_setter_type != "normal":
+                    opp_action = 0
+                else:
+                    # Otherwise, use the frozen policy (normal kickoff play)
+                    opp_action = self.opponent_fn(opp_obs)
 
         # ── Pack actions for both agents ────────────────────────────
         actions = {}

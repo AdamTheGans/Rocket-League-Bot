@@ -87,8 +87,8 @@ class CurriculumCallback(BaseCallback):
 
         # Current slider values (authoritative source of truth;
         # synced to workers via set_attr)
-        self._difficulty: float = 0.1
-        self._noise_amount: float = 0.05
+        self._difficulty: float = 0.3
+        self._noise_amount: float = 0.1
 
         # ── Telemetry buffers ───────────────────────────────────────
         # Collect per-episode metrics between evaluations, then average
@@ -220,11 +220,11 @@ class CurriculumCallback(BaseCallback):
         elif success_rate < self.demote_threshold:
             # ── Demote: decrease noise and difficulty ────────────────
             self._noise_amount = max(
-                0.05,
+                0.1,
                 old_noise - self.noise_step * 0.5,
             )
             self._difficulty = max(
-                0.1,
+                0.3,
                 old_diff - self.difficulty_step * 0.5,
             )
 
