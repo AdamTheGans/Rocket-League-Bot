@@ -2,26 +2,19 @@
 """
 Environment factory for mixed mechanic + normal training.
 
-Creates a 1v1 RLGym env that alternates between mechanic-specific resets
+Creates a native 1v1 RLGym env that alternates between mechanic-specific resets
 (from extracted replay trajectories) and normal gameplay resets (kickoffs).
-Wraps the result in a SelfPlayEnv for single-agent SB3 compatibility.
-
-The factory function ``make_mixed_env`` returns a ready-to-use gym.Env
-that can be passed directly to SB3's ``SubprocVecEnv`` or ``DummyVecEnv``.
 """
 from __future__ import annotations
 
-import os
-import sys
-from typing import Optional
-
 import numpy as np
+import rocketsim as rs  # Added for the Oracle
 
 from rlgym.api import RLGym
 from rlgym.rocket_league.sim import RocketSimEngine
 from rlgym.rocket_league.api import GameState
 from rlgym.rocket_league.action_parsers import LookupTableAction, RepeatAction
-from rlgym.rocket_league.done_conditions import GoalCondition, TimeoutCondition, AnyCondition
+from rlgym.rocket_league.done_conditions import GoalCondition, AnyCondition
 from rlgym.rocket_league.obs_builders import DefaultObs
 from rlgym.rocket_league.state_mutators import (
     MutatorSequence,
@@ -29,23 +22,23 @@ from rlgym.rocket_league.state_mutators import (
     KickoffMutator,
 )
 from rlgym.rocket_league import common_values
+from rlgym.api import DoneCondition
 
 from state_setters.trajectory_setter import MechanicTrajectorySetter
 from state_setters.mixed_state_setter import MixedStateSetter
 from rewards.mixed_reward import build_mixed_reward
-from wrappers.self_play_env import SelfPlayEnv, make_idle_opponent, make_frozen_opponent
-from rlgym.api import DoneCondition, RewardFunction
+
 
 class DynamicTimeoutCondition(DoneCondition):
     """Gives 15s for normal play, but only 2.5s for mechanics to force speed."""
     def __init__(self, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5):
         super().__init__()
-        self.normal_timeout = normal_seconds * 120  # Convert to physics ticks
+        self.normal_timeout = normal_seconds * 120
         self.mechanic_timeout = mechanic_seconds * 120
         self.steps = 0
         self.current_limit = self.normal_timeout
 
-    def reset(self, initial_state: GameState) -> None:
+    def reset(self, initial_state: GameState, *args, **kwargs) -> None:
         self.steps = 0
         # If the ball starts on the wall (X > 3000), it's a Kuxir setup
         if abs(initial_state.ball.position[0]) > 3000:
@@ -53,58 +46,102 @@ class DynamicTimeoutCondition(DoneCondition):
         else:
             self.current_limit = self.normal_timeout
 
-    def step(self, state: GameState) -> bool:
+    def step(self, state: GameState, *args, **kwargs) -> bool:
         self.steps += state.tick_count - state.previous_tick_count
         return self.steps >= self.current_limit
 
-def make_mixed_env(
+
+class FastForwardGoalCondition(DoneCondition):
+    """
+    The Oracle: Peeks into the future using a ghost RocketSim arena.
+    Terminates the episode early if the ball is mathematically guaranteed to go in.
+    """
+    def __init__(self, min_speed=1500.0, max_seconds=2.5):
+        super().__init__()
+        self.min_speed = min_speed
+        self.max_steps = int(max_seconds * 120)  # 120 ticks per second
+        
+        # Initialize a hidden, car-less arena purely for ball physics
+        self.oracle = rs.Arena(rs.GameMode.SOCCAR)
+
+    def reset(self, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
+        shared_info["fast_forward_scorer"] = None
+
+    def step(self, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+        ball_vel = state.ball.linear_velocity
+        ball_speed = np.linalg.norm(ball_vel)
+
+        # 1. Cheap check: Is the ball moving fast enough to be worth simulating?
+        if ball_speed < self.min_speed:
+            return False
+
+        # 2. Setup the Oracle (sync ball state only)
+        ball_state = self.oracle.ball.get_state()
+        ball_state.pos = rs.Vec3(state.ball.position[0], state.ball.position[1], state.ball.position[2])
+        ball_state.vel = rs.Vec3(ball_vel[0], ball_vel[1], ball_vel[2])
+        ball_state.ang_vel = rs.Vec3(state.ball.angular_velocity[0], state.ball.angular_velocity[1], state.ball.angular_velocity[2])
+        self.oracle.ball.set_state(ball_state)
+
+        # 3. Step into the future
+        for _ in range(self.max_steps):
+            self.oracle.step(1)
+            
+            # 4. Check for a goal
+            current_y = self.oracle.ball.get_state().pos.y
+            if current_y > common_values.BACK_NET_Y:
+                shared_info["fast_forward_scorer"] = 0  # Blue scored
+                return True
+            elif current_y < -common_values.BACK_NET_Y:
+                shared_info["fast_forward_scorer"] = 1  # Orange scored
+                return True
+
+        return False
+
+
+# Add this new class above build_env
+class CurriculumDoneWrapper(DoneCondition):
+    """
+    Wraps your existing done conditions to evaluate if the episode was a success,
+    writing the result to shared_info for the MetricsLogger to read.
+    """
+    def __init__(self, base_condition: DoneCondition, mechanic_name: str):
+        super().__init__()
+        self.base_condition = base_condition
+        self.mechanic_name = mechanic_name
+        self.success_key = f"{mechanic_name}_success"
+
+    def reset(self, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
+        self.base_condition.reset(initial_state, shared_info, *args, **kwargs)
+        # Default to False at the start of the episode
+        shared_info[self.success_key] = False
+
+    def step(self, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+        done = self.base_condition.step(state, shared_info, *args, **kwargs)
+        
+        if done:
+            ball_y = state.ball.position[1]
+            ff_scorer = shared_info.get("fast_forward_scorer", None)
+            
+            # Did Blue score? (Assuming the bot is playing Blue for mechanic setups)
+            blue_scored = (ball_y > common_values.BACK_NET_Y - 200) or (ff_scorer == 0)
+            if blue_scored:
+                shared_info[self.success_key] = True
+                
+        return done
+
+
+def build_env(
     mechanic_name: str = "kuxir",
     data_dir: str = "../extracted_mechanics",
     mechanic_prob: float = 0.4,
     tick_skip: int = 8,
-    episode_seconds: float = 15.0,
-    obs_size: int = 92,
-    num_actions: int = 90,
-    opponent_checkpoint: Optional[str] = None,
-    opponent_device: str = "cpu",
     fps: int = 30,
     pre_mechanic_seconds: float = 1.5,
-    idle_opponent_during_mechanic: bool = True,
-) -> SelfPlayEnv:
+    curriculum=None,
+) -> RLGym:
     """
-    Build a 1v1 mixed-training environment wrapped for SB3.
-
-    Parameters
-    ----------
-    mechanic_name : str
-        Identifier for the mechanic (e.g., "kuxir", "ceiling_shot").
-    data_dir : str
-        Path to the directory containing .npy trajectory files.
-    mechanic_prob : float
-        Probability of selecting the mechanic setter (0.0 to 1.0).
-    tick_skip : int
-        Action repeat frames (default 8).
-    episode_seconds : float
-        Episode timeout in seconds.
-    obs_size : int
-        Observation dimension (must match the pretrained policy).
-    num_actions : int
-        Number of discrete actions (default 90 for LookupTableAction).
-    opponent_checkpoint : str, optional
-        Path to frozen opponent checkpoint. If None, uses idle opponent.
-    opponent_device : str
-        PyTorch device for the opponent model.
-    fps : int
-        Frame rate of extracted replays (default 30).
-    pre_mechanic_seconds : float
-        Seconds of pre-mechanic trajectory to keep (default 1.5).
-
-    Returns
-    -------
-    SelfPlayEnv
-        A gym.Env exposing single-agent interface for SB3.
+    Build a native 1v1 mixed-training environment for rlgym-ppo.
     """
-    # ── 1. Build state setters ──────────────────────────────────────
     mechanic_setter = MechanicTrajectorySetter(
         data_dir=data_dir,
         mechanic_name=mechanic_name,
@@ -120,7 +157,14 @@ def make_mixed_env(
         names=["normal", mechanic_name],
     )
 
-    # ── 2. Build the rlgym environment ──────────────────────────────
+    mechanic_setter = MechanicTrajectorySetter(
+        data_dir=data_dir,
+        mechanic_name=mechanic_name,
+        fps=fps,
+        pre_mechanic_seconds=pre_mechanic_seconds,
+        curriculum=curriculum
+    )
+
     obs_builder = DefaultObs(
         zero_padding=None,
         pos_coef=np.asarray(
@@ -137,58 +181,24 @@ def make_mixed_env(
         boost_coef=1 / 100.0,
     )
 
-    # State mutator: fix team sizes first, then apply our mixed setter
     state_mutator = MutatorSequence(
         FixedTeamSizeMutator(blue_size=1, orange_size=1),
         mixed_setter,
     )
 
-    rlgym_env = RLGym(
+    base_termination = AnyCondition(
+        GoalCondition(),
+        FastForwardGoalCondition(min_speed=1500.0, max_seconds=2.5)
+    )
+
+    env = RLGym(
         state_mutator=state_mutator,
         obs_builder=obs_builder,
         action_parser=RepeatAction(LookupTableAction(), repeats=tick_skip),
         reward_fn=build_mixed_reward(mechanic_name=mechanic_name),
-        termination_cond=GoalCondition(),
-        truncation_cond=AnyCondition(
-            DynamicTimeoutCondition(15.0, 2.5),
-        ),
+        termination_cond=CurriculumDoneWrapper(base_termination, mechanic_name),
+        truncation_cond=DynamicTimeoutCondition(15.0, 2.5),
         transition_engine=RocketSimEngine(),
     )
 
-    # ── 3. Build the opponent ───────────────────────────────────────
-    if opponent_checkpoint and os.path.isfile(opponent_checkpoint):
-        opponent_fn = make_frozen_opponent(
-            checkpoint_path=opponent_checkpoint,
-            device=opponent_device,
-        )
-    else:
-        opponent_fn = make_idle_opponent()
-
-    # ── 4. Wrap in SelfPlayEnv ──────────────────────────────────────
-    env = SelfPlayEnv(
-        rlgym_env=rlgym_env,
-        opponent_fn=opponent_fn,
-        obs_size=obs_size,
-        num_actions=num_actions,
-        mechanic_name=mechanic_name,
-        mechanic_setter=mechanic_setter,
-        mixed_setter=mixed_setter,
-        idle_opponent_during_mechanic=idle_opponent_during_mechanic, # <--- PASS IT DOWN
-    )
-
     return env
-
-
-class MixedEnvFactory:
-    """
-    Pickle-safe callable for creating mixed training envs.
-
-    Use with SB3's ``SubprocVecEnv``:
-    >>> vec_env = SubprocVecEnv([MixedEnvFactory(...) for _ in range(n_proc)])
-    """
-
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-    def __call__(self) -> SelfPlayEnv:
-        return make_mixed_env(**self.kwargs)

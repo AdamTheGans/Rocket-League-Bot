@@ -99,6 +99,7 @@ class SparseGoalSpeedReward:
     """
     Sparse: Massive payout for scoring, heavily scaled by ball speed.
     Fixes the velocity integration trap by only rewarding speed ONCE upon scoring.
+    Now supports Fast Forward Goal Predictions!
     """
 
     def __init__(self, base_goal_value: float = 20.0, speed_multiplier: float = 30.0):
@@ -113,23 +114,27 @@ class SparseGoalSpeedReward:
         
         if any(is_terminated.values()):
             ball_y = state.ball.position[1]
-            # Calculate ball speed ratio (0.0 to 1.0)
-            ball_speed = float(np.linalg.norm(state.ball.linear_velocity))
-            speed_ratio = ball_speed / common_values.BALL_MAX_SPEED
-            
-            bonus = self.base_goal_value + (speed_ratio * self.speed_multiplier)
+            ff_scorer = shared_info.get("fast_forward_scorer", None)
 
-            for agent_id in agents:
-                car = state.cars[agent_id]
-                # Blue scored
-                if car.team_num == 0 and ball_y > 0:
-                    rewards[agent_id] = bonus
-                # Orange scored
-                elif car.team_num == 1 and ball_y < 0:
-                    rewards[agent_id] = bonus
-                # Scored upon
-                else:
-                    rewards[agent_id] = -self.base_goal_value
+            # Did Blue score? (Either physically crossed the line OR the Oracle predicted it)
+            blue_scored = (ball_y > common_values.BACK_NET_Y - 200) or (ff_scorer == 0)
+            
+            # Did Orange score?
+            orange_scored = (ball_y < -common_values.BACK_NET_Y + 200) or (ff_scorer == 1)
+
+            if blue_scored or orange_scored:
+                # Calculate ball speed ratio (0.0 to 1.0) based on current real speed
+                ball_speed = float(np.linalg.norm(state.ball.linear_velocity))
+                speed_ratio = ball_speed / common_values.BALL_MAX_SPEED
+                bonus = self.base_goal_value + (speed_ratio * self.speed_multiplier)
+
+                for agent_id in agents:
+                    car = state.cars[agent_id]
+                    if (car.team_num == 0 and blue_scored) or (car.team_num == 1 and orange_scored):
+                        rewards[agent_id] = bonus
+                    else:
+                        rewards[agent_id] = -self.base_goal_value
+                        
         return rewards
 
 
