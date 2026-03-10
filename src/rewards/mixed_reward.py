@@ -114,13 +114,12 @@ class SparseGoalSpeedReward:
         
         if any(is_terminated.values()):
             ball_y = state.ball.position[1]
-            ff_scorer = shared_info.get("fast_forward_scorer", None)
 
-            # Did Blue score? (Either physically crossed the line OR the Oracle predicted it)
-            blue_scored = (ball_y > common_values.BACK_NET_Y - 200) or (ff_scorer == 0)
+            # Did Blue score? 
+            blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
             
             # Did Orange score?
-            orange_scored = (ball_y < -common_values.BACK_NET_Y + 200) or (ff_scorer == 1)
+            orange_scored = (ball_y < -common_values.BACK_NET_Y + 200)
 
             if blue_scored or orange_scored:
                 # Calculate ball speed ratio (0.0 to 1.0) based on current real speed
@@ -350,6 +349,10 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
     return CombinedRewardWrapper(
         # Dense approach: minor breadcrumbs to keep it engaged
         (VelocityTowardBallReward(weight=0.01), 1.0),
+        
+        # Dense result: Reward for actually making the ball move towards the net
+        # This is CRITICAL for early curriculum (diff 0.1) so it gets immediate signal after contact.
+        (BallVelocityToGoalReward(weight=0.05), 1.0),
         
         # Dense penalty: Bleed reward every step so it wants to score FAST
         (TickPenalty(penalty=0.02), 1.0),

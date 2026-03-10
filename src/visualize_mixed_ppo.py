@@ -37,15 +37,29 @@ from rlgym.rocket_league import common_values
 try:
     from state_setters.mixed_state_setter import MixedStateSetter
     from state_setters.trajectory_setter import MechanicTrajectorySetter
+    from rewards.mixed_reward import build_mixed_reward
+    from envs.mixed_training_env import CurriculumRewardWrapper
 except ImportError:
-    print("WARNING: Could not import MixedStateSetter/MechanicTrajectorySetter.")
-    print("Please update the import paths in visualize_mixed_ppo.py")
-    # Fallbacks for syntax checking (will fail at runtime if not replaced)
+    print("WARNING: Could not import seters. Run from src/ dir.")
     MixedStateSetter = type("MixedStateSetter", (object,), {})
     MechanicTrajectorySetter = type("MechanicTrajectorySetter", (object,), {})
+    build_mixed_reward = lambda **kwargs: None
+    CurriculumRewardWrapper = type("CurriculumRewardWrapper", (object,), {})
 
-from nexto_distill.eval_imitation import _load_student
-from nexto_distill.teacher_nexto import NextoTeacher
+class MockCurriculum:
+    class MockValue:
+        def __init__(self, val): self.value = val
+    def __init__(self, diff, noise):
+        self.difficulty = self.MockValue(diff)
+        self.noise_amount = self.MockValue(noise)
+        self.outcomes_queue = type("MockQueue", (object,), {"put": lambda self, x: None})()
+
+# We will skip importing nexto_distill if it breaks, as we are mainly using "idle" to test spawns
+try:
+    from nexto_distill.eval_imitation import _load_student
+    from nexto_distill.teacher_nexto import NextoTeacher
+except ImportError:
+    pass
 
 
 # ===================================================================== #
@@ -54,19 +68,21 @@ from nexto_distill.teacher_nexto import NextoTeacher
 
 def _load_ppo_policy(checkpoint: str, device: str):
     """Load SB3 PPO model."""
-    if not os.path.isfile(checkpoint):
-        raise FileNotFoundError(f"PPO checkpoint not found: {checkpoint}")
-    
+    if not checkpoint or not os.path.isfile(checkpoint):
+        print(f"  [WARN] Checkpoint not found: {checkpoint}. Returning random fallback policy.")
+        return lambda obs, gs, aid: np.random.randint(0, 90) # Lookup table has ~90 actions
+        
     print(f"  Loading PPO checkpoint: {checkpoint}")
-    model = PPO.load(checkpoint, device=device)
-
-    def policy_fn(obs_dict, game_state, blue_agent):
-        obs = obs_dict[blue_agent].astype(np.float32)
-        # Use deterministic=True to see the 'true' learned policy without exploration noise
-        action, _ = model.predict(obs, deterministic=True)
-        return int(action)
-
-    return policy_fn
+    try:
+        model = PPO.load(checkpoint, device=device)
+        def policy_fn(obs_dict, game_state, blue_agent):
+            obs = obs_dict[blue_agent].astype(np.float32)
+            action, _ = model.predict(obs, deterministic=True)
+            return int(action)
+        return policy_fn
+    except Exception as e:
+        print(f"  [Error loading SB3 model] {e}. Using random fallback.")
+        return lambda obs, gs, aid: np.random.randint(0, 90)
 
 def _make_opponent(opponent_name: str, checkpoint: Optional[str], device: str, tick_skip: int):
     """Load the opponent (Student BC, Teacher Nexto, or Idle)."""
@@ -136,18 +152,24 @@ def visualize(args):
     opp_fn, opp_teacher = _make_opponent(args.opponent, args.opponent_checkpoint, args.device, args.tick_skip)
 
     # 2. Setup Mixed Environment
+    mock_curriculum = MockCurriculum(args.difficulty, args.noise)
+    
     kuxir_setter = MechanicTrajectorySetter(
         data_dir="../extracted_mechanics",
         mechanic_name="kuxir",
         fps=30,
         pre_mechanic_seconds=1.5,
+        curriculum=mock_curriculum
     )
     normal_setter = KickoffMutator()
     mixed_setter = MixedStateSetter(
         setters=[normal_setter, kuxir_setter],
-        probabilities=[0.5, 0.5],
+        probabilities=[0.0, 1.0], # FORCE KUXIR SPAWNS 100% OF THE TIME for debugging
         names=["normal", "kuxir"],
     )
+
+    base_reward = build_mixed_reward(mechanic_name="kuxir")
+    reward_fn = CurriculumRewardWrapper(base_reward, "kuxir", mock_curriculum)
 
     env = RLGym(
         state_mutator=MutatorSequence(
@@ -163,7 +185,7 @@ def visualize(args):
             boost_coef=1/100.0,
         ),
         action_parser=RepeatAction(LookupTableAction(), repeats=args.tick_skip),
-        reward_fn=CombinedReward(), # Reward doesn't matter for inference
+        reward_fn=reward_fn, 
         termination_cond=GoalCondition(),
         truncation_cond=AnyCondition(TimeoutCondition(timeout_seconds=args.episode_seconds)),
         transition_engine=RocketSimEngine(),
@@ -247,11 +269,11 @@ def visualize(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to PPO .zip")
+    parser.add_argument("--checkpoint", type=str, default="none", help="Path to PPO .zip")
     parser.add_argument("--opponent", type=str, default="student_bc", choices=["idle", "teacher_nexto", "student_bc"])
     parser.add_argument("--opponent_checkpoint", type=str, default=None)
     parser.add_argument("--difficulty", type=float, default=0.2)
-    parser.add_argument("--noise", type=float, default=0.075)
+    parser.add_argument("--noise", type=float, default=0.05)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--viser", action="store_true")
     parser.add_argument("--tick_skip", type=int, default=8)

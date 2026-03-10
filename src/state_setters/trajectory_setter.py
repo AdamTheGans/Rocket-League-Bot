@@ -104,10 +104,23 @@ class MechanicTrajectorySetter:
         traj = self.trajectories[traj_idx]
         num_frames = traj.shape[0]
 
-        min_buffer = min(5, num_frames - 1)
-        easiest_frame = num_frames - 1 - min_buffer
-        frame_idx = int((1.0 - difficulty) * easiest_frame)
+        # Frame 0 is the start (easiest, closest to pinch, difficulty=0.0)
+        # Because we sliced the tray such that `end` is the mechanic moment.
+        # Wait, the trajectory is sliced `[start:end]`. 
+        # So `trajectory[-1]` is the frame RIGHT BEFORE the pinch.
+        # `trajectory[0]` is `pre_mechanic_seconds` AGO.
+        
+        # Difficulty 0.0 (easiest) -> should spawn as close to the pinch as possible -> frame_idx near num_frames
+        # Difficulty 1.0 (hardest) -> should spawn as far back as possible -> frame_idx near 0
+        
+        # Remove artificial min_buffer completely so difficulty 0.0 spawns EXACTLY on the pinch
+        easiest_frame = num_frames - 1              # Easiest frame is the last frame
+        hardest_frame = 0                           # Hardest frame is the start
+        
+        # Interpolate: difficulty 0.0 -> easiest_frame, difficulty 1.0 -> hardest_frame
+        frame_idx = int(easiest_frame - difficulty * (easiest_frame - hardest_frame))
         frame_idx = np.clip(frame_idx, 0, num_frames - 1)
+        
         frame = traj[frame_idx]
 
         b_pos = frame[COL_BALL_POS].copy()

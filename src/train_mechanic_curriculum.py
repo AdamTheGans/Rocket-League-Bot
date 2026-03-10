@@ -19,13 +19,14 @@ student_path = "../NOT_WORKING/data/nexto_distill/nexto_checkpoints/student_poli
 
 # 1. Define a standard function at the top level of the module.
 # Pickle can handle this because it's globally accessible.
-def env_factory(shared_curriculum):
+def env_factory(shared_curriculum, tick_skip=8):
     from envs.mixed_training_env import build_env
     
     return build_env(
         mechanic_name="kuxir",
         data_dir="../extracted_mechanics",
-        curriculum=shared_curriculum
+        curriculum=shared_curriculum,
+        tick_skip=tick_skip
     )
 
 
@@ -37,6 +38,11 @@ def train(
     save_dir: str = "../checkpoints",
     run_name: str = "kuxir_ppo_run",
     critic_warmup_steps: int = 0,
+    init_difficulty: float = 0.1,
+    init_noise: float = 0.025,
+    min_difficulty: float = 0.0,
+    min_noise: float = 0.0,
+    tick_skip: int = 8,
 ):
     device = "cuda" if gpu else "cpu"
     checkpoint_dir = os.path.join(save_dir, run_name)
@@ -52,12 +58,12 @@ def train(
 
     # Create the Manager in the main process
     manager = mp.Manager()
-    shared_curriculum = SharedCurriculum(manager)
+    shared_curriculum = SharedCurriculum(manager, init_difficulty, init_noise, min_difficulty, min_noise)
     logger = CurriculumMetricsLogger(shared_curriculum, mechanic_name="kuxir")
 
     # Initialize the rlgym-ppo Learner
     learner = Learner(
-        env_create_function=functools.partial(env_factory, shared_curriculum),
+        env_create_function=functools.partial(env_factory, shared_curriculum, tick_skip=tick_skip),
         metrics_logger=logger,
         n_proc=n_proc,
         min_inference_size=max(1, n_proc // 2),
@@ -76,17 +82,13 @@ def train(
 
     # Load the pretrained Nexto weights into the learner's agent
     if os.path.exists(student_path):
-        print(f" -> Loading distilled student policy from {student_path}...")
-        
-        # Load the weights (mapping to the correct device)
-        checkpoint = torch.load(student_path, map_location=device)
-        
-        # Note: Depending on how you saved the student, you might need to 
-        # access a 'state_dict' key or load the model directly.
-        # If it's a raw state_dict:
-        learner.agent.policy.load_state_dict(checkpoint)
-        
-        print(" -> Student weights loaded. Bot is starting with Nexto-level basic car control!")
+        print(f" -> Load distillation candidate: {student_path}...")
+        try:
+            checkpoint = torch.load(student_path, map_location=device, weights_only=True)
+            learner.agent.policy.load_state_dict(checkpoint)
+            print(" -> Student weights loaded. Bot is starting with Nexto-level basic car control!")
+        except Exception as e:
+            print(f" -> Could not load distillation checkpoint ({e}). Proceeding from scratch.")
     else:
         print(" -> No student policy found. Starting from scratch.")
 
@@ -130,6 +132,20 @@ if __name__ == "__main__":
     parser.add_argument("--n-proc", type=int, default=16)
     parser.add_argument("--total-timesteps", type=int, default=50_000_000)
     parser.add_argument("--gpu", action="store_true")
+    parser.add_argument("--init-difficulty", type=float, default=0.1)
+    parser.add_argument("--init-noise", type=float, default=0.025)
+    parser.add_argument("--min-difficulty", type=float, default=0.0)
+    parser.add_argument("--min-noise", type=float, default=0.0)
+    parser.add_argument("--tick-skip", type=int, default=8)
     args = parser.parse_args()
 
-    train(n_proc=args.n_proc, total_timesteps=args.total_timesteps, gpu=args.gpu)
+    train(
+        n_proc=args.n_proc, 
+        total_timesteps=args.total_timesteps, 
+        gpu=args.gpu,
+        init_difficulty=args.init_difficulty,
+        init_noise=args.init_noise,
+        min_difficulty=args.min_difficulty,
+        min_noise=args.min_noise,
+        tick_skip=args.tick_skip
+    )

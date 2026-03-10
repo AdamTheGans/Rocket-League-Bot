@@ -22,7 +22,7 @@ from rlgym.rocket_league.state_mutators import (
     KickoffMutator,
 )
 from rlgym.rocket_league import common_values
-from rlgym.api import DoneCondition
+from rlgym.api import DoneCondition, RewardFunction
 
 from state_setters.trajectory_setter import MechanicTrajectorySetter
 from state_setters.mixed_state_setter import MixedStateSetter
@@ -31,8 +31,9 @@ from rlgym_ppo.util import RLGymV2GymWrapper
 
 class DynamicTimeoutCondition(DoneCondition):
     """Gives 15s for normal play, but only 2.5s for mechanics to force speed."""
-    def __init__(self, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5):
+    def __init__(self, mechanic_name: str, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5):
         super().__init__()
+        self.mechanic_name = mechanic_name
         self.normal_timeout = normal_seconds * 120
         self.mechanic_timeout = mechanic_seconds * 120
         self.steps = 0
@@ -42,13 +43,14 @@ class DynamicTimeoutCondition(DoneCondition):
         self.steps = 0
         # 1. Initialize our manual tick tracker
         self.last_tick = initial_state.tick_count
-        # If the ball starts on the wall (X > 3000), it's a Kuxir setup
-        if abs(initial_state.ball.position[0]) > 3000:
+        
+        # Check if the episode is a mechanic spawn via shared_info
+        if shared_info.get("setter_type") == self.mechanic_name:
             self.current_limit = self.mechanic_timeout
         else:
             self.current_limit = self.normal_timeout
 
-    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> dict:
         self.steps += state.tick_count - self.last_tick
         self.last_tick = state.tick_count
         # Calculate the boolean once
@@ -107,40 +109,56 @@ class FastForwardGoalCondition(DoneCondition):
 
 
 # Add this new class above build_env
-class CurriculumDoneWrapper(DoneCondition):
+class CurriculumRewardWrapper(RewardFunction):
     """
-    Wraps your existing done conditions to evaluate if the episode was a success,
-    writing the result to shared_info for the MetricsLogger to read.
+    Wraps the reward function to capture BOTH terminations (goals) and truncations (timeouts),
+    extracting metrics from shared_info before the RL agent steps.
     """
-    def __init__(self, base_condition: DoneCondition, mechanic_name: str, curriculum):
+    def __init__(self, base_reward: RewardFunction, mechanic_name: str, curriculum):
         super().__init__()
-        self.base_condition = base_condition
+        self.base_reward = base_reward
         self.mechanic_name = mechanic_name
-        self.success_key = f"{mechanic_name}_success"
         self.curriculum = curriculum
+        self.steps = 0
 
     def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
-        self.base_condition.reset(agents, initial_state, shared_info, *args, **kwargs)
-        # Default to False at the start of the episode
-        shared_info[self.success_key] = False
+        self.base_reward.reset(agents, initial_state, shared_info, *args, **kwargs)
+        shared_info["max_ball_speed"] = 0.0
+        self.steps = 0
 
-
-    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
-        done = self.base_condition.is_done(agents, state, shared_info, *args, **kwargs)
+    def get_rewards(self, agents, state: GameState, is_terminated: dict, is_truncated: dict, shared_info: dict, *args, **kwargs) -> dict:
+        rewards = self.base_reward.get_rewards(agents, state, is_terminated, is_truncated, shared_info, *args, **kwargs)
+        self.steps += 1
         
-        if done:
-            ball_y = state.ball.position[1]
-            ff_scorer = shared_info.get("fast_forward_scorer", None)
-            success = shared_info.get(self.success_key, False)
+        ball_speed = float(np.linalg.norm(state.ball.linear_velocity))
+        if ball_speed > shared_info.get("max_ball_speed", 0.0):
+            shared_info["max_ball_speed"] = ball_speed
             
-            # Did Blue score? (Assuming the bot is playing Blue for mechanic setups)
-            blue_scored = (ball_y > common_values.BACK_NET_Y - 200) or (ff_scorer == 0)
-            if blue_scored:
-                shared_info[self.success_key] = True
+        done = any(is_terminated.values()) or any(is_truncated.values())
+        if done and self.curriculum is not None:
+            stype = shared_info.get("setter_type", "normal")
             
-            self.curriculum.outcomes_queue.put(success) 
+            if stype == self.mechanic_name:
+                # Did Blue score? (Assuming the bot is playing Blue for mechanic setups)
+                ball_y = state.ball.position[1]
+                blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
                 
-        return done
+                metrics = {
+                    "setter_type": stype,
+                    "success": blue_scored,
+                    "max_ball_speed": shared_info["max_ball_speed"],
+                    "ball_speed_at_end": ball_speed,
+                    "episode_length": self.steps
+                }
+            else:
+                metrics = {
+                    "setter_type": stype,
+                    "episode_length": self.steps
+                }
+            
+            self.curriculum.outcomes_queue.put(metrics)
+                
+        return rewards
 
 
 def build_env(
@@ -160,6 +178,7 @@ def build_env(
         mechanic_name=mechanic_name,
         fps=fps,
         pre_mechanic_seconds=pre_mechanic_seconds,
+        curriculum=curriculum
     )
 
     normal_setter = KickoffMutator()
@@ -168,14 +187,6 @@ def build_env(
         setters=[normal_setter, mechanic_setter],
         probabilities=[1.0 - mechanic_prob, mechanic_prob],
         names=["normal", mechanic_name],
-    )
-
-    mechanic_setter = MechanicTrajectorySetter(
-        data_dir=data_dir,
-        mechanic_name=mechanic_name,
-        fps=fps,
-        pre_mechanic_seconds=pre_mechanic_seconds,
-        curriculum=curriculum
     )
 
     obs_builder = DefaultObs(
@@ -199,18 +210,18 @@ def build_env(
         mixed_setter,
     )
 
-    base_termination = AnyCondition(
-        GoalCondition(),
-        FastForwardGoalCondition(min_speed=1500.0, max_seconds=2.5)
-    )
+    base_termination = GoalCondition()
+
+    base_reward = build_mixed_reward(mechanic_name=mechanic_name)
+    reward_fn = CurriculumRewardWrapper(base_reward, mechanic_name, curriculum)
 
     env = RLGym(
         state_mutator=state_mutator,
         obs_builder=obs_builder,
         action_parser=RepeatAction(LookupTableAction(), repeats=tick_skip),
-        reward_fn=build_mixed_reward(mechanic_name=mechanic_name),
-        termination_cond=CurriculumDoneWrapper(base_termination, mechanic_name, curriculum),
-        truncation_cond=DynamicTimeoutCondition(15.0, 2.5),
+        reward_fn=reward_fn,
+        termination_cond=base_termination,
+        truncation_cond=DynamicTimeoutCondition(mechanic_name, 15.0, 2.5),
         transition_engine=RocketSimEngine(),
     )
 
