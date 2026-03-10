@@ -43,6 +43,8 @@ def train(
     min_difficulty: float = 0.0,
     min_noise: float = 0.0,
     tick_skip: int = 8,
+    load_checkpoint: str = None,
+    wandb_id: str = None,
 ):
     device = "cuda" if gpu else "cpu"
     checkpoint_dir = os.path.join(save_dir, run_name)
@@ -77,11 +79,13 @@ def train(
         critic_layer_sizes=[2048, 1024, 1024, 512],
         device=device,
         log_to_wandb=True,
+        wandb_run_name=run_name,
+        checkpoint_load_folder=load_checkpoint if load_checkpoint else None,
         render=False,
     )
 
-    # Load the pretrained Nexto weights into the learner's agent
-    if os.path.exists(student_path):
+    # Load the pretrained Nexto weights into the learner's agent (only if starting from scratch)
+    if not load_checkpoint and os.path.exists(student_path):
         print(f" -> Load distillation candidate: {student_path}...")
         try:
             checkpoint = torch.load(student_path, map_location=device, weights_only=True)
@@ -137,6 +141,8 @@ if __name__ == "__main__":
     parser.add_argument("--min-difficulty", type=float, default=0.0)
     parser.add_argument("--min-noise", type=float, default=0.0)
     parser.add_argument("--tick-skip", type=int, default=8)
+    parser.add_argument("--load-checkpoint", type=str, default=None, help="Path to checkpoint folder to resume from")
+    parser.add_argument("--wandb-id", type=str, default=None, help="Wandb run ID to resume logging into")
     args = parser.parse_args()
 
     train(
@@ -147,5 +153,7 @@ if __name__ == "__main__":
         init_noise=args.init_noise,
         min_difficulty=args.min_difficulty,
         min_noise=args.min_noise,
-        tick_skip=args.tick_skip
+        tick_skip=args.tick_skip,
+        load_checkpoint=args.load_checkpoint,
+        wandb_id=args.wandb_id
     )

@@ -141,8 +141,9 @@ class CurriculumMetricsLogger(MetricsLogger):
         old_noise = self.shared.noise_amount.value
         old_diff = self.shared.difficulty.value
 
-        # Promote if we hit target 70% success OR if we are crushing the ball (e.g. avg 15.0 pinch reward)
-        bypass_threshold = 15.0
+        # Promote if we hit target 70% success OR if we are crushing the ball (e.g. avg 40.0 pinch reward)
+        # Note: 40.0 pinch reward corresponds to a consistent 3000+ uu/s shot towards the net.
+        bypass_threshold = 40.0
         if success_rate > self.promote_threshold or avg_pinch_reward > bypass_threshold:
             new_noise = min(1.0, old_noise + self.noise_step)
             self.shared.noise_amount.value = new_noise

@@ -377,7 +377,7 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
         (PinchVelocityReward(min_speed=1500.0, weight=1.0), 1.0),
         
         # Sparse jackpot: Massive payout if it actually scores (or the oracle predicts a score)
-        (SparseGoalSpeedReward(base_goal_value=20.0, speed_multiplier=30.0), 1.0),
+        (SparseGoalSpeedReward(base_goal_value=100.0, speed_multiplier=30.0), 1.0),
     )
 
 
