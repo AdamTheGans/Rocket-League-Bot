@@ -40,8 +40,7 @@ class CurriculumMetricsLogger(MetricsLogger):
         self.eval_interval = eval_interval_episodes
         
         # Curriculum hyperparameters
-        self.promote_threshold = 0.80
-        self.demote_threshold = 0.40
+        self.promote_threshold = 0.70
         self.noise_step = 0.05
         self.difficulty_step = 0.02
         self.noise_gate = 0.3
@@ -52,6 +51,7 @@ class CurriculumMetricsLogger(MetricsLogger):
         self.end_speeds = deque(maxlen=self.eval_interval)
         self.ep_lengths_kuxir = deque(maxlen=self.eval_interval)
         self.ep_lengths_normal = deque(maxlen=self.eval_interval)
+        self.sub_rewards: dict[str, deque] = {}  # Tracks individual reward components
         self.episodes_since_eval = 0
 
     def _collect_metrics(self, game_state):
@@ -79,6 +79,13 @@ class CurriculumMetricsLogger(MetricsLogger):
                         self.max_speeds.append(float(data.get("max_ball_speed", 0.0)))
                         self.end_speeds.append(float(data.get("ball_speed_at_end", 0.0)))
                         self.ep_lengths_kuxir.append(int(data.get("episode_length", 0)))
+                        
+                        # Accumulate sub-rewards
+                        sub_rewards = data.get("sub_rewards", {})
+                        for r_name, r_val in sub_rewards.items():
+                            if r_name not in self.sub_rewards:
+                                self.sub_rewards[r_name] = deque(maxlen=self.eval_interval)
+                            self.sub_rewards[r_name].append(float(r_val))
                     else:
                         self.ep_lengths_normal.append(int(data.get("episode_length", 0)))
                 else:
@@ -106,6 +113,10 @@ class CurriculumMetricsLogger(MetricsLogger):
                 log_dict[f"{self.mechanic_name}/avg_max_ball_speed"] = float(np.mean(self.max_speeds))
                 log_dict[f"{self.mechanic_name}/avg_ball_speed_at_end"] = float(np.mean(self.end_speeds))
                 
+            for r_name, v_deque in self.sub_rewards.items():
+                if len(v_deque) > 0:
+                    log_dict[f"{self.mechanic_name}_reward/{r_name}"] = float(np.mean(v_deque))
+                
         if len(self.ep_lengths_kuxir) > 0:
             log_dict[f"global/episode_length_{self.mechanic_name}"] = float(np.mean(self.ep_lengths_kuxir))
         if len(self.ep_lengths_normal) > 0:
@@ -120,20 +131,26 @@ class CurriculumMetricsLogger(MetricsLogger):
         return log_dict
 
     def _evaluate_curriculum(self):
-        # Your exact curriculum math!
-        success_rate = np.mean(self.outcomes)
+        # Calculate Primary Metric: Goal Success Rate
+        success_rate = np.mean(self.outcomes) if self.outcomes else 0.0
+        
+        # Calculate Secondary Metric: Average Pinch Velocity Reward
+        pinch_reward_deque = self.sub_rewards.get("PinchVelocityReward", [])
+        avg_pinch_reward = np.mean(pinch_reward_deque) if len(pinch_reward_deque) > 0 else 0.0
+        
         old_noise = self.shared.noise_amount.value
         old_diff = self.shared.difficulty.value
 
-        if success_rate > self.promote_threshold:
+        # Promote if we hit target 70% success OR if we are crushing the ball (e.g. avg 15.0 pinch reward)
+        bypass_threshold = 15.0
+        if success_rate > self.promote_threshold or avg_pinch_reward > bypass_threshold:
             new_noise = min(1.0, old_noise + self.noise_step)
             self.shared.noise_amount.value = new_noise
             
             if new_noise >= self.noise_gate:
                 self.shared.difficulty.value = min(1.0, old_diff + self.difficulty_step)
                 
-        elif success_rate < self.demote_threshold:
-            self.shared.noise_amount.value = max(self.shared.min_noise, old_noise - self.noise_step * 0.5)
-            self.shared.difficulty.value = max(self.shared.min_difficulty, old_diff - self.difficulty_step * 0.5)
-
-        print(f"\n[Curriculum] Eval! Success: {success_rate:.1%} | Noise: {self.shared.noise_amount.value:.3f} | Diff: {self.shared.difficulty.value:.3f}\n")
+            trigger_reason = f"Success {success_rate:.1%}" if success_rate > self.promote_threshold else f"Pinch Reward {avg_pinch_reward:.1f}"
+            print(f"\n[Curriculum] 🏆 ADVANCEMENT ({trigger_reason}) | Noise: {self.shared.noise_amount.value:.3f} | Diff: {self.shared.difficulty.value:.3f}\n")
+        else:
+            print(f"\n[Curriculum] Eval! Success: {success_rate:.1%} | Pinch: {avg_pinch_reward:.1f} | Noise: {self.shared.noise_amount.value:.3f} | Diff: {self.shared.difficulty.value:.3f}\n")

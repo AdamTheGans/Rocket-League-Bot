@@ -133,10 +133,18 @@ class CurriculumRewardWrapper(RewardFunction):
         self.base_reward.reset(agents, initial_state, shared_info, *args, **kwargs)
         shared_info["max_ball_speed"] = 0.0
         self.steps = 0
+        self.episode_sub_rewards = {agent: {} for agent in agents}
 
     def get_rewards(self, agents, state: GameState, is_terminated: dict, is_truncated: dict, shared_info: dict, *args, **kwargs) -> dict:
         rewards = self.base_reward.get_rewards(agents, state, is_terminated, is_truncated, shared_info, *args, **kwargs)
         self.steps += 1
+        
+        # Accumulate sub-rewards from the active CombinedRewardWrapper
+        if hasattr(self.base_reward, "last_rewards"):
+            last_rews = self.base_reward.last_rewards
+            for agent in agents:
+                for r_name, r_val in last_rews.get(agent, {}).items():
+                    self.episode_sub_rewards[agent][r_name] = self.episode_sub_rewards[agent].get(r_name, 0.0) + r_val
         
         ball_speed = float(np.linalg.norm(state.ball.linear_velocity))
         if ball_speed > shared_info.get("max_ball_speed", 0.0):
@@ -152,17 +160,20 @@ class CurriculumRewardWrapper(RewardFunction):
                 physical_blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
                 oracle_blue_scored = (shared_info.get("oracle_scorer") == rs.Team.BLUE)
                 
+                # Assume agent[0] is Blue for the sub_rewards
                 metrics = {
                     "setter_type": stype,
                     "success": physical_blue_scored or oracle_blue_scored,
                     "max_ball_speed": shared_info["max_ball_speed"],
                     "ball_speed_at_end": ball_speed,
-                    "episode_length": self.steps
+                    "episode_length": self.steps,
+                    "sub_rewards": self.episode_sub_rewards.get(agents[0], {})
                 }
             else:
                 metrics = {
                     "setter_type": stype,
-                    "episode_length": self.steps
+                    "episode_length": self.steps,
+                    "sub_rewards": self.episode_sub_rewards.get(agents[0], {})
                 }
             
             self.curriculum.outcomes_queue.put(metrics)

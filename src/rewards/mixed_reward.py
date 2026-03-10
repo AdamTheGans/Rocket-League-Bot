@@ -285,8 +285,9 @@ class TimeoutPenalty:
 
 class PinchVelocityReward:
     """Rewards the bot heavily for making the ball travel FAST towards the enemy net."""
-    def __init__(self, min_speed=2000.0):
+    def __init__(self, min_speed=1500.0, weight=1.0):
         self.min_speed = min_speed
+        self.weight = weight
 
     def reset(self, agents, initial_state, shared_info):
         pass
@@ -294,19 +295,27 @@ class PinchVelocityReward:
     def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
         rewards = {agent_id: 0.0 for agent_id in agents}
         
-        # Ball Y velocity
-        ball_vy = state.ball.linear_velocity[1]
+        ball_vel = state.ball.linear_velocity
+        ball_pos = state.ball.position
         
         for agent_id in agents:
             car = state.cars[agent_id]
-            target_dir = 1.0 if car.team_num == 0 else -1.0
-            
-            # Is the ball moving towards the correct net?
-            if ball_vy * target_dir > 0:
-                speed_towards_net = abs(ball_vy)
+            if car.team_num == 0:  # Blue attacks +Y
+                goal = np.array([0.0, common_values.BACK_NET_Y, 0.0], dtype=np.float32)
+            else:  # Orange attacks -Y
+                goal = np.array([0.0, -common_values.BACK_NET_Y, 0.0], dtype=np.float32)
+
+            diff = goal - ball_pos
+            dist = float(np.linalg.norm(diff))
+            if dist > 1e-6:
+                goal_dir = diff / dist
+                speed_towards_net = float(np.dot(ball_vel, goal_dir))
+                
                 if speed_towards_net > self.min_speed:
-                    # A 3000 speed pinch yields 0.01 per tick. 4000 yields 0.04 per tick.
-                    rewards[agent_id] = ((speed_towards_net - self.min_speed) / 10000.0) ** 2
+                    # Scaled exponentially but less steep.
+                    # A 2500 uu/s pinch = 0.25 payout per tick.
+                    # A 3500 uu/s pinch = 1.0 payout per tick.
+                    rewards[agent_id] = (((speed_towards_net - self.min_speed) / 2000.0) ** 2) * self.weight
                     
         return rewards
 
@@ -358,28 +367,17 @@ def build_kuxir_reward() -> CombinedRewardWrapper:
     """
     Build the reward function for Kuxir pinch mechanic episodes.
 
-    Uses a time bleed to encourage speed, and a massive jackpot for high-velocity goals.
+    Uses a dense ball-to-goal vector, an exponential pinch threshold, and a massive oracle jackpot.
     """
     return CombinedRewardWrapper(
-        # Dense approach: minor breadcrumbs to keep it engaged
-        (VelocityTowardBallReward(weight=0.01), 1.0),
-        
-        # Dense result: Reward for actually making the ball move towards the net
-        # This is CRITICAL for early curriculum (diff 0.1) so it gets immediate signal after contact.
+        # Dense approach: Rewards any ball velocity moving towards the net (helps early learning)
         (BallVelocityToGoalReward(weight=0.05), 1.0),
         
-        # Dense penalty: Bleed reward every step so it wants to score FAST
-        (TickPenalty(penalty=0.02), 1.0),
+        # Exponential Pinch: Over-represents perfectly aimed high-speed pinches
+        (PinchVelocityReward(min_speed=1500.0, weight=1.0), 1.0),
         
-        # Sparse contact: Must physically hit the ball for a bonus
-        (TouchBallReward(touch_value=2.0, touch_distance=170.0), 1.0),
-        
-        # Sparse jackpot: Replaces simple goal + dense velocity
+        # Sparse jackpot: Massive payout if it actually scores (or the oracle predicts a score)
         (SparseGoalSpeedReward(base_goal_value=20.0, speed_multiplier=30.0), 1.0),
-        
-        # Timeout penalty - FIXED keyword argument here
-        (TimeoutPenalty(penalty_value=1.0), 1.0),
-        (PinchVelocityReward(min_speed=1500.0), 2.0),
     )
 
 
