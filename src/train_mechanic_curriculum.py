@@ -17,7 +17,7 @@ import functools
 
 # Limit PyTorch to 1 OpenMP thread so it doesn't fight the RocketSim workers for CPU
 # on high-core machines!
-torch.set_num_threads(1)
+# torch.set_num_threads(1)
 
 student_path = "../NOT_WORKING/data/nexto_distill/nexto_checkpoints/student_policy.pt"
 
