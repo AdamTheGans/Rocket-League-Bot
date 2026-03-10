@@ -24,3 +24,53 @@ You have successfully constructed a highly robust, multi-process training pipeli
 ### Current Status: Live Training
 
 As of right now, the infrastructure is complete. The environments are actively stepping, the C++ RocketSim physics are advancing, the multi-core workers are sending valid observation batches to the PyTorch neural networks, and the PPO algorithm is actively calculating gradients and updating the bot's "brain" (Actor/Critic networks). The training loop is fully operational.
+
+
+## How to install
+
+### 1. Create Virtual Environment
+
+**Windows (PowerShell):**
+```powershell
+cd C:\path\to\Rocket-League-Bot
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+**Linux:**
+```bash
+cd /path/to/Rocket-League-Bot
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install PyTorch with CUDA
+
+**GPU machines:**
+```bash
+pip3 install torch --index-url https://download.pytorch.org/whl/cu126
+```
+
+**CPU-only machines:**
+```bash
+pip install torch
+```
+
+### 3. Install RLGym + RocketSim + PPO engine
+
+```bash
+pip install rlgym[all]
+pip install git+https://github.com/AechPro/rlgym-ppo
+```
+
+### 4. Install remaining dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 5. Login to Weights & Biases
+
+```bash
+wandb login
+```
