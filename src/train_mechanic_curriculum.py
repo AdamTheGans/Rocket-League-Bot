@@ -36,7 +36,7 @@ def train(
     batch_size: int = 50_000,
     save_dir: str = "../checkpoints",
     run_name: str = "kuxir_ppo_run",
-    critic_warmup_steps: int = 150_000,
+    critic_warmup_steps: int = 0,
 ):
     device = "cuda" if gpu else "cpu"
     checkpoint_dir = os.path.join(save_dir, run_name)
@@ -104,7 +104,7 @@ def train(
     # Main Training Loop
     while obs_count < total_timesteps:
         learner.learn()
-        obs_count += learner.ts_per_iteration
+        obs_count += batch_size
         
         # Check if we need to unfreeze the actor
         if actor_frozen and obs_count >= critic_warmup_steps:
