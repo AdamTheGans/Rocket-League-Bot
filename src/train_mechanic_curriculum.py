@@ -70,7 +70,7 @@ def train(
         policy_layer_sizes=[2048, 1024, 1024, 512],
         critic_layer_sizes=[2048, 1024, 1024, 512],
         device=device,
-        log_to_wandb=False,
+        log_to_wandb=True,
         render=False,
     )
 

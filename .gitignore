@@ -36,3 +36,4 @@ Thumbs.db
 
 # Eval outputs
 eval_labeled.gif
+/src/wandb

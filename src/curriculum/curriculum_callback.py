@@ -83,6 +83,9 @@ class CurriculumMetricsLogger(MetricsLogger):
         if wandb_run is not None:
             wandb_run.log(log_dict, step=cumulative_timesteps)
             
+        # Add this print statement!
+        print(f"\n[CUSTOM METRICS] {log_dict}\n")
+        
         # Returning the dict prints it nicely to the terminal!
         return log_dict
 

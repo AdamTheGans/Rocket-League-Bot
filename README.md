@@ -1,201 +1,26 @@
-# Rocket League Bot — Setup Guide
+# Project Overview: Rocket League Mechanic Curriculum Bot
 
-## What This Is
+### The Objective
 
-A Rocket League bot trained with reinforcement learning (PPO) using RLGym v2 + RocketSim.
-Currently training two specialists:
-- **Grounded Strike**: A 1v0 agent that learns to score from near-ground spawns.
-- **Pinch Specialist**: A 1v0 agent that masters the Upright Aerial Wall Pinch through 3 automated curriculum stages.
+The goal of this project is to train a state-of-the-art Rocket League AI capable of executing highly specific, complex mechanics (like the Kuxir pinch). Because these mechanics require microscopic precision and perfect timing, standard Reinforcement Learning (RL) from random states is highly inefficient.
 
----
+To solve this, we have built a **custom Curriculum Learning framework** on top of RLGym v2 and `rlgym-ppo`. The bot starts by learning the mechanic in extremely easy, highly scripted setups. As it proves it can score, the environment dynamically increases the difficulty and adds physical noise until the bot can execute the mechanic from standard, chaotic game situations.
 
-## Quick Setup
+### Core Technology Stack
 
-### 1. Install Python 3.10+
+* **Environment Engine:** RLGym v2 & RocketSim (C++ physics simulator for blindingly fast environment stepping).
+* **Algorithm:** Proximal Policy Optimization (PPO) via `rlgym-ppo`.
+* **Deep Learning Backend:** PyTorch.
 
-**Windows:** Download from [python.org](https://www.python.org/downloads/). Check **"Add Python to PATH"** during install.
+### What We Have Built So Far
 
-**Linux (Ubuntu):**
-```bash
-sudo apt update && sudo apt install python3 python3-venv python3-pip
-```
+You have successfully constructed a highly robust, multi-process training pipeline from scratch. Here are the core components currently functioning:
 
-### 2. Clone / Copy the Project
+* **The "Oracle" Fast-Forward Condition:** Instead of waiting for the ball to slowly roll into the net after a pinch, we built a `FastForwardGoalCondition`. This spawns a "ghost" RocketSim arena in the background, fast-forwards the physics, and instantly terminates the episode if a goal is mathematically guaranteed. This saves massive amounts of compute time.
+* **Dynamic Curriculum Architecture:** We implemented a `SharedCurriculum` manager that tracks the bot's success rate. If the bot's win rate crosses an 80% threshold, it automatically promotes the bot to a higher difficulty and increases the noise. If the bot fails too often, it demotes it.
+* **Thread-Safe Multiprocessing Metrics:** Because RLGym uses multiple CPU workers in parallel to gather data, we engineered a completely thread-safe `multiprocessing.Queue` system. The individual worker environments drop their win/loss booleans into the queue, and the main PyTorch thread scoops them up at the end of every batch to calculate the true success rate.
+* **RLGym v2 Compliance:** We successfully migrated complex custom logic (like `DoneConditions`, truncations, and multi-agent dictionary returns) from the legacy RLGym v1 API to the modern, lightning-fast v2 standard.
 
-Copy this entire folder to the target machine.
+### Current Status: Live Training
 
-### 3. Create Virtual Environment
-
-**Windows (PowerShell):**
-```powershell
-cd C:\path\to\Rocket-League-Bot
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-**Linux:**
-```bash
-cd /path/to/Rocket-League-Bot
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 4. Install PyTorch with CUDA
-
-**GPU machines:**
-```bash
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-```
-
-**CPU-only machines:**
-```bash
-pip install torch
-```
-
-### 5. Install RLGym + RocketSim + PPO engine
-
-```bash
-pip install rlgym[rl-sim,rl-rlviser]
-pip install rlviser-py
-pip install git+https://github.com/AechPro/rlgym-ppo
-```
-
-### 6. Install remaining dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 6. Verify Installation
-
-**Windows:**
-```powershell
-python src\verify_env.py
-```
-
-**Linux:**
-```bash
-python src/verify_env.py
-```
-
-You should see `=== ALL TESTS PASSED ===` at the end.
-
----
-
-## Training
-
-### On the GPU Machine
-
-**Windows:**
-```powershell
-.venv\Scripts\Activate.ps1
-python src\train_specialist_1_gpu.py
-```
-
-**Linux:**
-```bash
-source .venv/bin/activate
-python src/train_specialist_1_gpu.py
-```
-
-This uses the optimized config:
-- `n_proc=20` (20 parallel RocketSim environments)
-- `[512, 512, 256]` network (GPU handles this easily)
-- `100,000` batch size
-- `500M` timestep limit (~6-8 hours on GPU)
-
-### On the Laptop (6 cores, CPU only)
-
-**Windows:**
-```powershell
-.venv\Scripts\Activate.ps1
-python src\train_specialist_1.py
-```
-
-**Linux:**
-```bash
-source .venv/bin/activate
-python src/train_specialist_1.py
-```
-
-### Keyboard Controls During Training
-
-- `p` — Pause (any key to resume)
-- `c` — Save checkpoint
-- `q` — Save checkpoint and quit
-
-### Resuming Training
-
-The learner auto-resumes from the latest checkpoint in `checkpoints/grounded_strike/`.
-Just run the same command again.
-
----
-
-## Evaluation
-
-**Windows:**
-```powershell
-.venv\Scripts\Activate.ps1
-python src\eval_specialist_1.py
-```
-
-**Linux:**
-```bash
-source .venv/bin/activate
-python src/eval_specialist_1.py
-```
-
-This auto-finds the latest checkpoint, runs 200 episodes, and saves a
-top-down debug GIF to `checkpoints/eval_labeled.gif`.
-
-The GIF shows car position, ball position, facing direction, boost level,
-and height (z-coordinate) for both car and ball.
-
----
-
-## Project Structure
-
-```
-Rocket-League-Bot/
-├── src/
-│   ├── envs/
-│   │   ├── grounded_strike.py      # 1v0 strike environment setup
-│   │   ├── pinch.py                # 1v0 pinch environment setup (w/ 2.0s timeouts)
-│   │   └── resets/
-│   │       └── generate_golden_seed.py # Grid searches precise pinch setups (spatial, rotation, and dodge flips) and visualizes them using rlviser
-│   ├── rewards/
-│   │   ├── strike_reward.py        # Strike reward function
-│   │   └── pinch_reward.py         # Pinch reward function
-│   ├── state_setters/
-│   │   ├── low_spawn_setter.py     # Strike spawn positions
-│   │   └── pinch_golden_seed_setter.py # Pinch spawn positions / offset geometry
-│   ├── metrics/
-│   │   ├── strike_metrics.py       # Custom strike metrics
-│   │   └── pinch_metrics.py        # Custom pinch metrics with auto-progression
-│   ├── train_specialist_1.py       # Training config (laptop/CPU)
-│   ├── train_specialist_1_gpu.py   # Training config (GPU machine)
-│   ├── eval_specialist_1.py        # Strike Evaluation + GIF generation
-│   ├── train_pinch.py              # Pinch training config (supports --stage auto-progression)
-│   ├── eval_pinch.py               # Pinch Evaluation + GIF generation
-│   ├── test_golden_seed_pinch.py   # Visualizes the Stage 1 golden seed impact in 120FPS real-time
-│   ├── test_stage2_spawns.py       # Visualizes the Stage 2 dynamic approach spawns with simulated physics
-│   ├── verify_env.py               # Quick strike sanity test
-│   └── verify_pinch_env.py         # Quick pinch sanity test
-├── checkpoints/                    # Saved model checkpoints
-├── requirements.txt
-├── PLAN.md                         # Full project roadmap
-└── README.md
-```
-
----
-
-## Transferring Checkpoints
-
-To continue training on a different machine, copy the entire
-`checkpoints/grounded_strike/` folder. The learner will auto-detect
-and resume from the latest checkpoint.
-
-**Note:** If switching between different `policy_layer_sizes` configs
-(e.g., `[512,256,256]` on laptop vs `[512,512,256]` on GPU machine),
-you must start training fresh — checkpoints are not compatible across
-different network architectures.
+As of right now, the infrastructure is complete. The environments are actively stepping, the C++ RocketSim physics are advancing, the multi-core workers are sending valid observation batches to the PyTorch neural networks, and the PPO algorithm is actively calculating gradients and updating the bot's "brain" (Actor/Critic networks). The training loop is fully operational.
