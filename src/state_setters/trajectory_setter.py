@@ -30,6 +30,7 @@ COL_ELAPSED_TIME   = 27
 
 FRAME_WIDTH = 28
 
+
 class MechanicTrajectorySetter:
     def __init__(
         self,
@@ -38,12 +39,12 @@ class MechanicTrajectorySetter:
         fps: int = 30,
         pre_mechanic_seconds: float = 1.5,
         noise_scales: Optional[dict] = None,
-        shared_curriculum = None,  # Pass the shared multiprocessing curriculum here
+        curriculum = None,  # Pass the shared multiprocessing curriculum here
     ):
         self.mechanic_name = mechanic_name
         self.fps = fps
         self.pre_mechanic_seconds = pre_mechanic_seconds
-        self.shared_curriculum = shared_curriculum
+        self.shared_curriculum = curriculum
 
         defaults = {
             "car_lin_vel": np.array([300.0, 300.0, 200.0], dtype=np.float32),
@@ -124,6 +125,9 @@ class MechanicTrajectorySetter:
             c_vel += rng.uniform(-self.noise_scales["car_lin_vel"] * noise_amount, self.noise_scales["car_lin_vel"] * noise_amount)
             c_ang += rng.uniform(-self.noise_scales["car_ang_vel"] * noise_amount, self.noise_scales["car_ang_vel"] * noise_amount)
             c_euler += rng.uniform(-self.noise_scales["car_euler"] * noise_amount, self.noise_scales["car_euler"] * noise_amount)
+            
+            # Wrap Euler angles back to [-pi, pi] to prevent physics engine glitches
+            c_euler = (c_euler + math.pi) % (2 * math.pi) - math.pi
 
         # Mirror across X axis with 50% probability (Left vs Right wall)
         if rng.random() > 0.5:
@@ -136,12 +140,9 @@ class MechanicTrajectorySetter:
             c_ang[1] *= -1.0
             c_ang[2] *= -1.0
             
-            c_yaw = c_euler[1]
-            new_yaw = math.pi - c_yaw
-            if new_yaw > math.pi: new_yaw -= 2 * math.pi
-            if new_yaw < -math.pi: new_yaw += 2 * math.pi
-            c_euler[1] = new_yaw
-            c_euler[2] *= -1.0
+            # Simple inversion for side-to-side mirror
+            c_euler[1] *= -1.0 # Invert Yaw
+            c_euler[2] *= -1.0 # Invert Roll
 
         state.ball.position = b_pos.astype(np.float32)
         state.ball.linear_velocity = b_vel.astype(np.float32)
@@ -176,7 +177,10 @@ class MechanicTrajectorySetter:
                 car.physics.euler_angles = np.zeros(3, dtype=np.float32)
                 car.boost_amount = 0.0
                 car.on_ground = True
-                car.is_demoed = True # RocketSim ignores physics for demoed cars
+                # Banish the car under the map so it doesn't interfere with the setup
+                car.physics.position = np.array([0.0, 0.0, -10000.0], dtype=np.float32)
+                car.physics.linear_velocity = np.zeros(3, dtype=np.float32)
+                car.physics.angular_velocity = np.zeros(3, dtype=np.float32)
                 car.hitbox_type = common_values.OCTANE
 
         if shared_info is not None:

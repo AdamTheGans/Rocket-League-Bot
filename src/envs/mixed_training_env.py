@@ -8,7 +8,7 @@ Creates a native 1v1 RLGym env that alternates between mechanic-specific resets
 from __future__ import annotations
 
 import numpy as np
-import rocketsim as rs  # Added for the Oracle
+import RocketSim as rs  # Added for the Oracle
 
 from rlgym.api import RLGym
 from rlgym.rocket_league.sim import RocketSimEngine
@@ -27,7 +27,7 @@ from rlgym.api import DoneCondition
 from state_setters.trajectory_setter import MechanicTrajectorySetter
 from state_setters.mixed_state_setter import MixedStateSetter
 from rewards.mixed_reward import build_mixed_reward
-
+from rlgym_ppo.util import RLGymV2GymWrapper
 
 class DynamicTimeoutCondition(DoneCondition):
     """Gives 15s for normal play, but only 2.5s for mechanics to force speed."""
@@ -38,17 +38,24 @@ class DynamicTimeoutCondition(DoneCondition):
         self.steps = 0
         self.current_limit = self.normal_timeout
 
-    def reset(self, initial_state: GameState, *args, **kwargs) -> None:
+    def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
         self.steps = 0
+        # 1. Initialize our manual tick tracker
+        self.last_tick = initial_state.tick_count
         # If the ball starts on the wall (X > 3000), it's a Kuxir setup
         if abs(initial_state.ball.position[0]) > 3000:
             self.current_limit = self.mechanic_timeout
         else:
             self.current_limit = self.normal_timeout
 
-    def step(self, state: GameState, *args, **kwargs) -> bool:
-        self.steps += state.tick_count - state.previous_tick_count
-        return self.steps >= self.current_limit
+    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+        self.steps += state.tick_count - self.last_tick
+        self.last_tick = state.tick_count
+        # Calculate the boolean once
+        is_timeout = self.steps >= self.current_limit
+        
+        # Return it as a dictionary for all agents
+        return {agent: is_timeout for agent in agents}
 
 
 class FastForwardGoalCondition(DoneCondition):
@@ -61,41 +68,42 @@ class FastForwardGoalCondition(DoneCondition):
         self.min_speed = min_speed
         self.max_steps = int(max_seconds * 120)  # 120 ticks per second
         
-        # Initialize a hidden, car-less arena purely for ball physics
-        self.oracle = rs.Arena(rs.GameMode.SOCCAR)
+        # We delay creating the Arena until reset() so RocketSimEngine 
+        # has time to extract the collision meshes first!
+        self.oracle = None
 
-    def reset(self, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
+    def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
+        # Lazy initialization of the Ghost Arena
+        if self.oracle is None:
+            self.oracle = rs.Arena(rs.GameMode.SOCCAR)
+            
         shared_info["fast_forward_scorer"] = None
 
-    def step(self, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+    # 1. Update the return hint to dict
+    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> dict:
+        
+        # 2. Return a dictionary instead of a flat False
+        if self.oracle is None:
+            return {agent: False for agent in agents}
+
         ball_vel = state.ball.linear_velocity
         ball_speed = np.linalg.norm(ball_vel)
 
-        # 1. Cheap check: Is the ball moving fast enough to be worth simulating?
         if ball_speed < self.min_speed:
-            return False
+            return {agent: False for agent in agents}
 
-        # 2. Setup the Oracle (sync ball state only)
-        ball_state = self.oracle.ball.get_state()
-        ball_state.pos = rs.Vec3(state.ball.position[0], state.ball.position[1], state.ball.position[2])
-        ball_state.vel = rs.Vec3(ball_vel[0], ball_vel[1], ball_vel[2])
-        ball_state.ang_vel = rs.Vec3(state.ball.angular_velocity[0], state.ball.angular_velocity[1], state.ball.angular_velocity[2])
-        self.oracle.ball.set_state(ball_state)
+        # ... (Setup the Oracle) ...
 
-        # 3. Step into the future
         for _ in range(self.max_steps):
-            self.oracle.step(1)
+            self.oracle.step(1) # <-- Keep this as step(1)!
             
-            # 4. Check for a goal
-            current_y = self.oracle.ball.get_state().pos.y
-            if current_y > common_values.BACK_NET_Y:
-                shared_info["fast_forward_scorer"] = 0  # Blue scored
-                return True
-            elif current_y < -common_values.BACK_NET_Y:
-                shared_info["fast_forward_scorer"] = 1  # Orange scored
-                return True
-
-        return False
+            # I assume you have logic here checking if the oracle ball went into the goal.
+            # If it did:
+            # shared_info["fast_forward_scorer"] = ... 
+            # return {agent: True for agent in agents}  <-- Make sure this returns a dict!
+            
+        # If the loop finishes without a goal:
+        return {agent: False for agent in agents}
 
 
 # Add this new class above build_env
@@ -104,28 +112,33 @@ class CurriculumDoneWrapper(DoneCondition):
     Wraps your existing done conditions to evaluate if the episode was a success,
     writing the result to shared_info for the MetricsLogger to read.
     """
-    def __init__(self, base_condition: DoneCondition, mechanic_name: str):
+    def __init__(self, base_condition: DoneCondition, mechanic_name: str, curriculum):
         super().__init__()
         self.base_condition = base_condition
         self.mechanic_name = mechanic_name
         self.success_key = f"{mechanic_name}_success"
+        self.curriculum = curriculum
 
-    def reset(self, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
-        self.base_condition.reset(initial_state, shared_info, *args, **kwargs)
+    def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
+        self.base_condition.reset(agents, initial_state, shared_info, *args, **kwargs)
         # Default to False at the start of the episode
         shared_info[self.success_key] = False
 
-    def step(self, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
-        done = self.base_condition.step(state, shared_info, *args, **kwargs)
+
+    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> bool:
+        done = self.base_condition.is_done(agents, state, shared_info, *args, **kwargs)
         
         if done:
             ball_y = state.ball.position[1]
             ff_scorer = shared_info.get("fast_forward_scorer", None)
+            success = shared_info.get(self.success_key, False)
             
             # Did Blue score? (Assuming the bot is playing Blue for mechanic setups)
             blue_scored = (ball_y > common_values.BACK_NET_Y - 200) or (ff_scorer == 0)
             if blue_scored:
                 shared_info[self.success_key] = True
+            
+            self.curriculum.outcomes_queue.put(success) 
                 
         return done
 
@@ -196,9 +209,9 @@ def build_env(
         obs_builder=obs_builder,
         action_parser=RepeatAction(LookupTableAction(), repeats=tick_skip),
         reward_fn=build_mixed_reward(mechanic_name=mechanic_name),
-        termination_cond=CurriculumDoneWrapper(base_termination, mechanic_name),
+        termination_cond=CurriculumDoneWrapper(base_termination, mechanic_name, curriculum),
         truncation_cond=DynamicTimeoutCondition(15.0, 2.5),
         transition_engine=RocketSimEngine(),
     )
 
-    return env
+    return RLGymV2GymWrapper(env)

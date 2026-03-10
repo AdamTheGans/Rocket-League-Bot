@@ -1,13 +1,19 @@
+import queue
 import numpy as np
 import multiprocessing as mp
 from collections import deque
 from rlgym_ppo.util import MetricsLogger
+from multiprocessing.managers import SyncManager
 
 class SharedCurriculum:
-    """Holds shared memory variables that all CPU workers can read."""
-    def __init__(self):
-        self.difficulty = mp.Value('d', 0.3)
-        self.noise_amount = mp.Value('d', 0.1)
+    """Holds shared memory proxy variables that all CPU workers can safely read/write."""
+    def __init__(self, manager: SyncManager):
+        # Using Manager proxies allows these to be safely pickled for Windows workers
+        self.difficulty = manager.Value('d', 0.3)
+        self.noise_amount = manager.Value('d', 0.1)
+        
+        # A thread-safe queue to pass success/failure booleans from workers to the main thread
+        self.outcomes_queue = manager.Queue()
 
 class CurriculumMetricsLogger(MetricsLogger):
     """
@@ -31,20 +37,28 @@ class CurriculumMetricsLogger(MetricsLogger):
         self.difficulty_step = 0.02
         self.noise_gate = 0.3
         
+        # Local state (only updated in the main process)
         self.outcomes = deque(maxlen=self.eval_interval)
         self.episodes_since_eval = 0
 
-    def collect_episode_metrics(self, agents, state, shared_info):
-        """Called by rlgym-ppo at the end of an episode."""
-        
-        # Check if this was a mechanic episode and if we got a success
-        success_key = f"{self.mechanic_name}_success"
-        
-        # Only log mechanic outcomes if it was actually a mechanic setup 
-        # (Assuming mixed_training_env sets "setter_type" in shared_info)
-        if shared_info.get("setter_type") == self.mechanic_name:
-            if success_key in shared_info:
-                scored = bool(shared_info[success_key])
+    def _collect_metrics(self, game_state):
+        """
+        REQUIRED BY RLGYM-PPO.
+        Runs in the worker processes on EVERY step.
+        We return an empty list because we are tracking successes via the Queue instead.
+        """
+        return []
+
+    def _report_metrics(self, collected_metrics, wandb_run, cumulative_timesteps):
+        """
+        REQUIRED BY RLGYM-PPO.
+        Runs in the main process at the end of every batch.
+        """
+        # 1. Drain the queue to get all outcomes sent by the workers during this batch
+        while not self.shared.outcomes_queue.empty():
+            try:
+                # get_nowait() is non-blocking
+                scored = bool(self.shared.outcomes_queue.get_nowait())
                 self.outcomes.append(scored)
                 self.episodes_since_eval += 1
                 
@@ -52,8 +66,10 @@ class CurriculumMetricsLogger(MetricsLogger):
                 if self.episodes_since_eval >= self.eval_interval:
                     self._evaluate_curriculum()
                     self.episodes_since_eval = 0
-                
-        # Return metrics for rlgym-ppo to log to Wandb/Tensorboard
+            except queue.Empty:
+                break
+
+        # 2. Package the metrics for rlgym-ppo to log to Wandb/Console
         log_dict = {
             f"Curriculum/Difficulty": self.shared.difficulty.value,
             f"Curriculum/Noise": self.shared.noise_amount.value,
@@ -61,12 +77,17 @@ class CurriculumMetricsLogger(MetricsLogger):
         
         # Log success rate if we have data
         if len(self.outcomes) > 0:
-            log_dict[f"Curriculum/Success_Rate"] = np.mean(self.outcomes)
+            log_dict[f"Curriculum/Success_Rate"] = float(np.mean(self.outcomes))
             
+        # Natively log to wandb if enabled
+        if wandb_run is not None:
+            wandb_run.log(log_dict, step=cumulative_timesteps)
+            
+        # Returning the dict prints it nicely to the terminal!
         return log_dict
 
     def _evaluate_curriculum(self):
-        # ... (Keep your exact evaluate logic here, it is completely fine!) ...
+        # Your exact curriculum math!
         success_rate = np.mean(self.outcomes)
         old_noise = self.shared.noise_amount.value
         old_diff = self.shared.difficulty.value

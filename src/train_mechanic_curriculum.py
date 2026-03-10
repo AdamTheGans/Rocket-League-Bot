@@ -9,13 +9,31 @@ from typing import Tuple
 from rlgym_ppo import Learner
 from envs.mixed_training_env import build_env
 from curriculum.curriculum_callback import SharedCurriculum, CurriculumMetricsLogger
+import torch
+import RocketSim as rs
+
+import multiprocessing as mp
+import functools
+
+student_path = "../NOT_WORKING/data/nexto_distill/nexto_checkpoints/student_policy.pt"
+
+# 1. Define a standard function at the top level of the module.
+# Pickle can handle this because it's globally accessible.
+def env_factory(shared_curriculum):
+    from envs.mixed_training_env import build_env
+    
+    return build_env(
+        mechanic_name="kuxir",
+        data_dir="../extracted_mechanics",
+        curriculum=shared_curriculum
+    )
 
 
 def train(
     n_proc: int = 4,
     total_timesteps: int = 50_000_000,
     gpu: bool = False,
-    batch_size: int = 100_000,
+    batch_size: int = 50_000,
     save_dir: str = "../checkpoints",
     run_name: str = "kuxir_ppo_run",
     critic_warmup_steps: int = 150_000,
@@ -32,18 +50,14 @@ def train(
     print(f" Batch size:      {batch_size}")
     print(f"{'='*60}\n")
 
-    shared_curriculum = SharedCurriculum()
+    # Create the Manager in the main process
+    manager = mp.Manager()
+    shared_curriculum = SharedCurriculum(manager)
     logger = CurriculumMetricsLogger(shared_curriculum, mechanic_name="kuxir")
-
-    env_factory = lambda: build_env(
-        mechanic_name="kuxir",
-        data_dir="../extracted_mechanics",
-        curriculum=shared_curriculum
-    )
 
     # Initialize the rlgym-ppo Learner
     learner = Learner(
-        env_create_function=env_factory,
+        env_create_function=functools.partial(env_factory, shared_curriculum),
         metrics_logger=logger,
         n_proc=n_proc,
         min_inference_size=max(1, n_proc // 2),
@@ -59,6 +73,22 @@ def train(
         log_to_wandb=False,
         render=False,
     )
+
+    # Load the pretrained Nexto weights into the learner's agent
+    if os.path.exists(student_path):
+        print(f" -> Loading distilled student policy from {student_path}...")
+        
+        # Load the weights (mapping to the correct device)
+        checkpoint = torch.load(student_path, map_location=device)
+        
+        # Note: Depending on how you saved the student, you might need to 
+        # access a 'state_dict' key or load the model directly.
+        # If it's a raw state_dict:
+        learner.agent.policy.load_state_dict(checkpoint)
+        
+        print(" -> Student weights loaded. Bot is starting with Nexto-level basic car control!")
+    else:
+        print(" -> No student policy found. Starting from scratch.")
 
     # Variables for our custom training loop
     obs_count = 0
