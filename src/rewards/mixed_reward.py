@@ -112,14 +112,28 @@ class SparseGoalSpeedReward:
     def get_rewards(self, agents, state, is_terminated, is_truncated, shared_info):
         rewards = {agent_id: 0.0 for agent_id in agents}
         
-        if any(is_terminated.values()):
+        # In a mechanic episode, the episode is truncated at 2.5s, before the ball reaches the net.
+        # But if the Oracle saw it go in, we still need to pay out!
+        timed_out = any(is_truncated.values())
+        terminal_goal = any(is_terminated.values())
+        
+        if terminal_goal or timed_out:
             ball_y = state.ball.position[1]
 
-            # Did Blue score? 
-            blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
+            # Did Blue score physically? 
+            physical_blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
             
-            # Did Orange score?
-            orange_scored = (ball_y < -common_values.BACK_NET_Y + 200)
+            # Did Blue score via Oracle?
+            import RocketSim as rs
+            oracle_blue_scored = (shared_info.get("oracle_scorer") == rs.Team.BLUE)
+            
+            blue_scored = physical_blue_scored or oracle_blue_scored
+            
+            # Did Orange score? (Assuming bot is always blue for Kuxir setups, but supporting both anyway)
+            physical_orange_scored = (ball_y < -common_values.BACK_NET_Y + 200)
+            oracle_orange_scored = (shared_info.get("oracle_scorer") == rs.Team.ORANGE)
+            
+            orange_scored = physical_orange_scored or oracle_orange_scored
 
             if blue_scored or orange_scored:
                 # Calculate ball speed ratio (0.0 to 1.0) based on current real speed

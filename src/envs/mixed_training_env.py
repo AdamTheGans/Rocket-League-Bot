@@ -29,20 +29,32 @@ from state_setters.mixed_state_setter import MixedStateSetter
 from rewards.mixed_reward import build_mixed_reward
 from rlgym_ppo.util import RLGymV2GymWrapper
 
-class DynamicTimeoutCondition(DoneCondition):
-    """Gives 15s for normal play, but only 2.5s for mechanics to force speed."""
-    def __init__(self, mechanic_name: str, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5):
+class OracleTimeoutCondition(DoneCondition):
+    """
+    The Oracle: Replaces the standard timeout.
+    At exactly the timeout limit (e.g., 2.5s), it freezes the game state,
+    puts the ball into a headless RocketSim Arena, and fast-forwards for
+    up to 3.5 seconds to see if the current trajectory will score.
+    
+    If it scores, it logs it in shared_info so Dense goal rewards can trigger.
+    """
+    def __init__(self, mechanic_name: str, normal_seconds: float = 15.0, mechanic_seconds: float = 2.5, oracle_seconds: float = 3.5):
         super().__init__()
         self.mechanic_name = mechanic_name
         self.normal_timeout = normal_seconds * 120
         self.mechanic_timeout = mechanic_seconds * 120
+        self.oracle_ticks = int(oracle_seconds * 120)
         self.steps = 0
         self.current_limit = self.normal_timeout
+        
+        # We delay creating the Arena until it's needed so RocketSimEngine 
+        # has time to extract the collision meshes first!
+        self.oracle = None
 
     def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
         self.steps = 0
-        # 1. Initialize our manual tick tracker
         self.last_tick = initial_state.tick_count
+        shared_info["oracle_scorer"] = None
         
         # Check if the episode is a mechanic spawn via shared_info
         if shared_info.get("setter_type") == self.mechanic_name:
@@ -53,59 +65,55 @@ class DynamicTimeoutCondition(DoneCondition):
     def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> dict:
         self.steps += state.tick_count - self.last_tick
         self.last_tick = state.tick_count
-        # Calculate the boolean once
+        
         is_timeout = self.steps >= self.current_limit
         
-        # Return it as a dictionary for all agents
+        # If we timed out AND this is a short mechanic episode, trigger the Oracle!
+        if is_timeout and self.current_limit == self.mechanic_timeout:
+            # Lazy initialization of the Ghost Arena
+            if self.oracle is None:
+                self.oracle = rs.Arena(rs.GameMode.SOCCAR)
+                
+            # Setup the Oracle State
+            ball_state = rs.BallState()
+            
+            # Copy position
+            ball_state.pos = rs.Vec(
+                state.ball.position[0],
+                state.ball.position[1],
+                state.ball.position[2]
+            )
+            
+            # Copy velocity
+            ball_state.vel = rs.Vec(
+                state.ball.linear_velocity[0],
+                state.ball.linear_velocity[1],
+                state.ball.linear_velocity[2]
+            )
+            
+            # Copy angular velocity
+            ball_state.ang_vel = rs.Vec(
+                state.ball.angular_velocity[0],
+                state.ball.angular_velocity[1],
+                state.ball.angular_velocity[2]
+            )
+            
+            # Apply state to the internal RocketSim engine ball
+            self.oracle.ball.set_state(ball_state)
+            
+            self.oracle.set_goal_score_callback(lambda arena, team, _: setattr(self, '_oracle_scored_team', team))
+            self._oracle_scored_team = None
+            
+            # Fast forward!
+            for _ in range(self.oracle_ticks):
+                self.oracle.step(1)
+                
+                # If a goal was scored, break early and record it
+                if self._oracle_scored_team is not None:
+                    shared_info["oracle_scorer"] = int(self._oracle_scored_team)
+                    break
+                    
         return {agent: is_timeout for agent in agents}
-
-
-class FastForwardGoalCondition(DoneCondition):
-    """
-    The Oracle: Peeks into the future using a ghost RocketSim arena.
-    Terminates the episode early if the ball is mathematically guaranteed to go in.
-    """
-    def __init__(self, min_speed=1500.0, max_seconds=2.5):
-        super().__init__()
-        self.min_speed = min_speed
-        self.max_steps = int(max_seconds * 120)  # 120 ticks per second
-        
-        # We delay creating the Arena until reset() so RocketSimEngine 
-        # has time to extract the collision meshes first!
-        self.oracle = None
-
-    def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
-        # Lazy initialization of the Ghost Arena
-        if self.oracle is None:
-            self.oracle = rs.Arena(rs.GameMode.SOCCAR)
-            
-        shared_info["fast_forward_scorer"] = None
-
-    # 1. Update the return hint to dict
-    def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> dict:
-        
-        # 2. Return a dictionary instead of a flat False
-        if self.oracle is None:
-            return {agent: False for agent in agents}
-
-        ball_vel = state.ball.linear_velocity
-        ball_speed = np.linalg.norm(ball_vel)
-
-        if ball_speed < self.min_speed:
-            return {agent: False for agent in agents}
-
-        # ... (Setup the Oracle) ...
-
-        for _ in range(self.max_steps):
-            self.oracle.step(1) # <-- Keep this as step(1)!
-            
-            # I assume you have logic here checking if the oracle ball went into the goal.
-            # If it did:
-            # shared_info["fast_forward_scorer"] = ... 
-            # return {agent: True for agent in agents}  <-- Make sure this returns a dict!
-            
-        # If the loop finishes without a goal:
-        return {agent: False for agent in agents}
 
 
 # Add this new class above build_env
@@ -139,13 +147,14 @@ class CurriculumRewardWrapper(RewardFunction):
             stype = shared_info.get("setter_type", "normal")
             
             if stype == self.mechanic_name:
-                # Did Blue score? (Assuming the bot is playing Blue for mechanic setups)
+                # Did Blue score? Check physically OR via oracle
                 ball_y = state.ball.position[1]
-                blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
+                physical_blue_scored = (ball_y > common_values.BACK_NET_Y - 200)
+                oracle_blue_scored = (shared_info.get("oracle_scorer") == rs.Team.BLUE)
                 
                 metrics = {
                     "setter_type": stype,
-                    "success": blue_scored,
+                    "success": physical_blue_scored or oracle_blue_scored,
                     "max_ball_speed": shared_info["max_ball_speed"],
                     "ball_speed_at_end": ball_speed,
                     "episode_length": self.steps
@@ -164,7 +173,7 @@ class CurriculumRewardWrapper(RewardFunction):
 def build_env(
     mechanic_name: str = "kuxir",
     data_dir: str = "../extracted_mechanics",
-    mechanic_prob: float = 0.4,
+    mechanic_prob: float = 1.0,
     tick_skip: int = 8,
     fps: int = 30,
     pre_mechanic_seconds: float = 1.5,
@@ -221,7 +230,7 @@ def build_env(
         action_parser=RepeatAction(LookupTableAction(), repeats=tick_skip),
         reward_fn=reward_fn,
         termination_cond=base_termination,
-        truncation_cond=DynamicTimeoutCondition(mechanic_name, 15.0, 2.5),
+        truncation_cond=OracleTimeoutCondition(mechanic_name, 15.0, 2.5, 3.5),
         transition_engine=RocketSimEngine(),
     )
 
