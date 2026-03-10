@@ -101,7 +101,7 @@ class OracleTimeoutCondition(DoneCondition):
             # Apply state to the internal RocketSim engine ball
             self.oracle.ball.set_state(ball_state)
             
-            self.oracle.set_goal_score_callback(lambda arena, team, _: setattr(self, '_oracle_scored_team', team))
+            self.oracle.set_goal_score_callback(lambda arena, team, *args, **kwargs: setattr(self, '_oracle_scored_team', team))
             self._oracle_scored_team = None
             
             # Fast forward!
