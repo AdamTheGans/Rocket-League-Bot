@@ -29,6 +29,8 @@ from state_setters.mixed_state_setter import MixedStateSetter
 from rewards.mixed_reward import build_mixed_reward
 from rlgym_ppo.util import RLGymV2GymWrapper
 
+_GLOBAL_ORACLE_ARENA = None
+
 class OracleTimeoutCondition(DoneCondition):
     """
     The Oracle: Replaces the standard timeout.
@@ -46,10 +48,6 @@ class OracleTimeoutCondition(DoneCondition):
         self.oracle_ticks = int(oracle_seconds * 120)
         self.steps = 0
         self.current_limit = self.normal_timeout
-        
-        # We delay creating the Arena until it's needed so RocketSimEngine 
-        # has time to extract the collision meshes first!
-        self.oracle = None
 
     def reset(self, agents, initial_state: GameState, shared_info: dict, *args, **kwargs) -> None:
         self.steps = 0
@@ -63,6 +61,7 @@ class OracleTimeoutCondition(DoneCondition):
             self.current_limit = self.normal_timeout
 
     def is_done(self, agents, state: GameState, shared_info: dict, *args, **kwargs) -> dict:
+        global _GLOBAL_ORACLE_ARENA
         self.steps += state.tick_count - self.last_tick
         self.last_tick = state.tick_count
         
@@ -70,9 +69,15 @@ class OracleTimeoutCondition(DoneCondition):
         
         # If we timed out AND this is a short mechanic episode, trigger the Oracle!
         if is_timeout and self.current_limit == self.mechanic_timeout:
-            # Lazy initialization of the Ghost Arena
-            if self.oracle is None:
-                self.oracle = rs.Arena(rs.GameMode.SOCCAR)
+            # Lazy initialization of the Global Ghost Arena ONCE per worker thread
+            if _GLOBAL_ORACLE_ARENA is None:
+                # Make sure rs is initialized. In rlgym v2 RocketSimEngine handles this,
+                # but we try/except just in case.
+                try:
+                    rs.init()
+                except Exception:
+                    pass
+                _GLOBAL_ORACLE_ARENA = rs.Arena(rs.GameMode.SOCCAR)
                 
             # Setup the Oracle State
             ball_state = rs.BallState()
@@ -99,14 +104,14 @@ class OracleTimeoutCondition(DoneCondition):
             )
             
             # Apply state to the internal RocketSim engine ball
-            self.oracle.ball.set_state(ball_state)
+            _GLOBAL_ORACLE_ARENA.ball.set_state(ball_state)
             
-            self.oracle.set_goal_score_callback(lambda arena, team, *args, **kwargs: setattr(self, '_oracle_scored_team', team))
+            _GLOBAL_ORACLE_ARENA.set_goal_score_callback(lambda arena, team, *args, **kwargs: setattr(self, '_oracle_scored_team', team))
             self._oracle_scored_team = None
             
             # Fast forward!
             for _ in range(self.oracle_ticks):
-                self.oracle.step(1)
+                _GLOBAL_ORACLE_ARENA.step(1)
                 
                 # If a goal was scored, break early and record it
                 if self._oracle_scored_team is not None:
