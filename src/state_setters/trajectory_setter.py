@@ -73,7 +73,16 @@ class MechanicTrajectorySetter:
                 continue
 
             ball_speeds = np.linalg.norm(raw[:, COL_BALL_LIN_VEL], axis=1)
-            mechanic_frame = int(np.argmax(ball_speeds))
+            
+            # Find the true pinch frame by looking for the largest 5-frame acceleration spike
+            if len(ball_speeds) < 6:
+                mechanic_frame = len(ball_speeds) // 2
+            else:
+                deltas = np.zeros_like(ball_speeds)
+                for i in range(5, len(ball_speeds)):
+                    deltas[i] = ball_speeds[i] - ball_speeds[i - 5]
+                mechanic_frame = int(np.argmax(deltas))
+                
             start = max(0, mechanic_frame - keep_frames)
             end = mechanic_frame 
 
@@ -142,6 +151,11 @@ class MechanicTrajectorySetter:
             # Wrap Euler angles back to [-pi, pi] to prevent physics engine glitches
             c_euler = (c_euler + math.pi) % (2 * math.pi) - math.pi
 
+        # 30% chance to spawn facing backwards for robustness!
+        if rng.random() < 0.3:
+            c_euler[1] += math.pi
+            c_euler[1] = (c_euler[1] + math.pi) % (2 * math.pi) - math.pi
+
         # Mirror across X axis with 50% probability (Left vs Right wall)
         if rng.random() > 0.5:
             b_pos[0] *= -1.0
@@ -153,19 +167,18 @@ class MechanicTrajectorySetter:
             c_ang[1] *= -1.0
             c_ang[2] *= -1.0
             
-            # Simple inversion for side-to-side mirror
-            c_euler[1] *= -1.0 # Invert Yaw
+            # Correct side-to-side Yaw inversion
+            # Mirroring across X=0 means new_yaw = pi - old_yaw
+            c_euler[1] = math.pi - c_euler[1]
+            c_euler[1] = (c_euler[1] + math.pi) % (2 * math.pi) - math.pi
             c_euler[2] *= -1.0 # Invert Roll
 
         state.ball.position = b_pos.astype(np.float32)
         state.ball.linear_velocity = b_vel.astype(np.float32)
         state.ball.angular_velocity = b_ang.astype(np.float32)
 
-        cars_list = list(state.cars.items())
-        agent_set = False
-        
-        for cid, car in cars_list:
-            if not agent_set:
+        for cid, car in state.cars.items():
+            if car.team_num == common_values.BLUE_TEAM:
                 # ── The Learning Bot ──
                 car.physics.position = c_pos.astype(np.float32)
                 car.physics.linear_velocity = c_vel.astype(np.float32)
@@ -180,7 +193,6 @@ class MechanicTrajectorySetter:
                 car.air_time_since_jump = 0.0 if not car.on_ground else 0.0
                 
                 car.hitbox_type = common_values.OCTANE # Fixed to Octane
-                agent_set = True
             else:
                 # ── The Ghost Opponent ──
                 # Teleported out of bounds, zero velocity, demoed flag set.

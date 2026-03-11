@@ -67,12 +67,50 @@ except ImportError:
 # ===================================================================== #
 
 def _load_ppo_policy(checkpoint: str, device: str):
-    """Load SB3 PPO model."""
-    if not checkpoint or not os.path.isfile(checkpoint):
+    """Load SB3 PPO model or rlgym-ppo model."""
+    if not checkpoint or not os.path.exists(checkpoint):
         print(f"  [WARN] Checkpoint not found: {checkpoint}. Returning random fallback policy.")
         return lambda obs, gs, aid: np.random.randint(0, 90) # Lookup table has ~90 actions
         
-    print(f"  Loading PPO checkpoint: {checkpoint}")
+    print(f"  Loading checkpoint: {checkpoint}")
+    
+    # 1. Try rlgym-ppo first
+    ppo_pt_path = os.path.join(checkpoint, "PPO_POLICY.pt")
+    if os.path.isfile(ppo_pt_path):
+        print(f"  Detected rlgym-ppo checkpoint. Loading PPO_POLICY.pt...")
+        try:
+            from rlgym_ppo.ppo.discrete_policy import DiscreteFF
+            state_dict = torch.load(ppo_pt_path, map_location=device)
+            
+            # Infer observation space from first layer
+            first_layer_key = next((k for k in state_dict.keys() if 'weight' in k and '0' in k), None)
+            if first_layer_key and len(state_dict[first_layer_key].shape) == 2:
+                obs_size = state_dict[first_layer_key].shape[1]
+            else:
+                obs_size = 92
+                
+            model = DiscreteFF(
+                input_shape=int(obs_size),
+                n_actions=90,
+                layer_sizes=[2048, 1024, 1024, 512],
+                device=device
+            )
+            model.load_state_dict(state_dict)
+            model.eval()
+            
+            def policy_fn(obs_dict, game_state, blue_agent):
+                obs = obs_dict[blue_agent].astype(np.float32)
+                t = torch.from_numpy(obs).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    action, _ = model.get_action(t, deterministic=True)
+                return int(action.item())
+                
+            return policy_fn
+        except Exception as e:
+            print(f"  [Error loading rlgym-ppo model] {e}. Using random fallback.")
+            return lambda obs, gs, aid: np.random.randint(0, 90)
+
+    # 2. Try SB3 fallback
     try:
         model = PPO.load(checkpoint, device=device)
         def policy_fn(obs_dict, game_state, blue_agent):
